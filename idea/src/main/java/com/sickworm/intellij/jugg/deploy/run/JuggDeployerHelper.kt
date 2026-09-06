@@ -16,6 +16,7 @@ import com.sickworm.intellij.jugg.deploy.hotreload.DirectAppSandboxDeployTranspo
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestApkSelector
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestResultModel
 import com.sickworm.intellij.jugg.deploy.run.applychanges.AndroidDeployType
+import com.sickworm.intellij.jugg.deploy.run.applychanges.CustomApkInstallScriptException
 import com.sickworm.intellij.jugg.deploy.run.applychanges.JuggDeployTask
 import com.sickworm.intellij.jugg.deploy.run.utils.CopyEmbeddedDistributionPaths
 import com.sickworm.intellij.jugg.deploy.run.flow.DeployRetryHandler
@@ -131,12 +132,14 @@ class JuggDeployerHelper(
         compileUiHandler: CompileUiHandler,
         deferPostDeployLaunch: Boolean,
         isAllowDirectOverlayDeploy: Boolean,
+        customApkInstallScript: String,
     ) {
         val launchResult = runTask(
             JuggDeployRunTaskRequest(
                 device = device,
                 data = data,
                 compileUiHandler = compileUiHandler,
+                customApkInstallScript = customApkInstallScript,
                 isSkipExceptOverlayCheck = isSkipExceptOverlayCheck,
                 deferPostDeployLaunch = deferPostDeployLaunch,
                 isAllowDirectOverlayDeploy = isAllowDirectOverlayDeploy,
@@ -207,6 +210,7 @@ class JuggDeployerHelper(
             isDeviceReadyDeploy = isDeviceReadyDeploy,
             isAllowDirectOverlayDeploy = request.isAllowDirectOverlayDeploy,
             forceDirectOverlayDeploy = request.forceDirectOverlayDeploy,
+            customApkInstallScript = request.customApkInstallScript,
         )
         val detectJob = taskRunnerManager.runAsyncSafe("isNeedPushAgentAfterDeploy") {
             JuggJvmtiAgentManagerHelper(logger).isNeedPushAgentAfterDeploy(
@@ -454,7 +458,7 @@ class JuggDeployerHelper(
     }
 
     fun deploy(deployOptions: DeployOptions): DeployTaskResult {
-        logger.debug("deploy start, deployOptions: $deployOptions")
+        logger.debug("deploy start, deployOptions: ${deployOptions.toSafeString()}")
         fun costTime(): Long { return System.currentTimeMillis() - deployOptions.startTime }
 
         if (deployOptions.processHandler != null && (deployOptions.processHandler.isCanceled)) {
@@ -502,9 +506,11 @@ class JuggDeployerHelper(
             }
             val reason = e.message ?: e.cause?.message ?: e.toString()
             val retryReason = deployOptions.retryReason
-            val canRetry = (retryReason != DO_NOT_RETRY) && (retryReason == null || retryReason != reason)
+            val isCustomInstallScriptFailure = e is CustomApkInstallScriptException
+            val canRetry = !isCustomInstallScriptFailure &&
+                (retryReason != DO_NOT_RETRY) && (retryReason == null || retryReason != reason)
             if (canRetry) {
-                logger.debug("try retry deploy..., deployOptions: $deployOptions")
+                logger.debug("try retry deploy..., deployOptions: ${deployOptions.toSafeString()}")
                 if (deployOptions.isInstall) {
                     val retryResult = tryRetryInstall(deployOptions, deployData, reason)
                     if (retryResult != null) {
@@ -526,7 +532,8 @@ class JuggDeployerHelper(
                 logger.debug(e)
             }
 
-            val isCanFallback = deployRetryHandler.isCanFallbackOnException(reason, deployOptions.isInstall)
+            val isCanFallback = !isCustomInstallScriptFailure &&
+                deployRetryHandler.isCanFallbackOnException(reason, deployOptions.isInstall)
             DeployTaskResult(isSuccess = false, deployType = deployData.deployType, isCanFallback = isCanFallback, costTime = costTime(), failedReason = reason)
         }
     }
@@ -664,11 +671,17 @@ class JuggDeployerHelper(
                     isSkipExceptOverlayCheck = deployOptions.isSkipExceptOverlayCheck,
                     compileUiHandler = deployOptions.compileUiHandler,
                     allowDirectOverlayRecover = deployOptions.isAllowDirectOverlayDeploy,
+                    customApkInstallScript = deployOptions.customApkInstallScript,
                 )
                 if (!isSuccess) {
                     logger.info("Try recover deploy state failed.")
                     return ChangesDeployOutcome(
-                        DeployTaskResult(isSuccess = false, isCanFallback = true, costTime = costTime(), failedReason = "Try recover deploy state failed."),
+                        DeployTaskResult(
+                            isSuccess = false,
+                            isCanFallback = true,
+                            costTime = costTime(),
+                            failedReason = "Try recover deploy state failed.",
+                        ),
                         deployData,
                     )
                 } else {

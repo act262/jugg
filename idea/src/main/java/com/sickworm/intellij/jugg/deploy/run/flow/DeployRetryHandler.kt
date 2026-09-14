@@ -92,7 +92,7 @@ class DeployRetryHandler(
         val isClassNotFoundException = reason.contains("Class not found")
         // logical error in JuggDeployer, thrown by DeployerException.overlayIdMismatch()
         val isOverlayIdNotMatch = reason.contains("The target app on the device is in a state unknown to Studio")
-        val isDirectDeployFailed = reason.contains("Direct overlay")
+        val isDirectDeployFailed = reason.contains("Direct overlay") || reason.contains("Direct app sandbox")
 
         val reinstallWhenTimeout = deployOptions.timeOutRetryTimes == 2 // try to reinstall apk at the third time
         val stopRetryWhenTimeout = deployOptions.timeOutRetryTimes >= 3

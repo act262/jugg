@@ -484,6 +484,52 @@ class DeployRetryHandlerTest {
     }
 
     @Test
+    fun `tryRetry should dry recover deploy state on direct app sandbox mismatch`() {
+        val device = Mockito.mock(IDevice::class.java)
+        val deployOptions = DeployOptions(device = device, isLastDevice = true)
+        val deployData = JuggDeployData.forInstall(emptyList())
+
+        val deployStateRecover = Mockito.mock(DeployStateRecover::class.java)
+        Mockito.`when`(
+            deployStateRecover.recoverDeployState(
+                device,
+                deployOptions.indicator,
+                true,
+                deployOptions.isSkipExceptOverlayCheck,
+                false,
+                deployOptions.compileUiHandler,
+                false,
+            ),
+        ).thenReturn(true to false)
+
+        val deployRunHost = RecordingDeployRunHost(DeployTaskResult(isSuccess = true, costTime = 6L))
+        val handler = createHandler(
+            deployStateRecover = deployStateRecover,
+            deployRunHost = deployRunHost,
+            deployTargetManager = foregroundAwareTargetManager(device, isForeground = false),
+        )
+
+        handler.tryRetry(
+            deployOptions,
+            finalIsFallbackAllHotFix = false,
+            deployData = deployData,
+            reason = "Direct app sandbox overlay state mismatch: MISMATCHED",
+        )
+
+        assertFalse(deployRunHost.lastRedeployOptions!!.isAllowDirectOverlayDeploy)
+        assertFalse(deployRunHost.lastRedeployOptions!!.forceDirectOverlayDeploy)
+        Mockito.verify(deployStateRecover).recoverDeployState(
+            device,
+            deployOptions.indicator,
+            true,
+            deployOptions.isSkipExceptOverlayCheck,
+            false,
+            deployOptions.compileUiHandler,
+            false,
+        )
+    }
+
+    @Test
     fun `tryRetry should return failure when recover deploy state fails on retry`() {
         val device = Mockito.mock(IDevice::class.java)
         val deployOptions = DeployOptions(device = device, isLastDevice = true, startTime = System.currentTimeMillis())

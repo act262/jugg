@@ -12,6 +12,7 @@ import com.sickworm.intellij.jugg.project.data.ComposeResourceSupportStatus
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.ModuleBuildPathInfo
+import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -62,6 +63,32 @@ class FileChangesHandlerTest {
         )
 
         assertTrue(handler.filter(listOf(outsideDirectory)).isEmpty())
+    }
+
+    @Test
+    fun `keeps one changed file when external source is shared by multiple modules`() {
+        val sharedRoot = temporaryExternalDirectory("shared-native-source")
+        val source = File(sharedRoot, "shared.cpp").apply { writeText("void sharedCall() {}") }
+        val modules = listOf("appcommon", "dtmp").associateWith { name ->
+            context.applicationModule.copy(
+                name = name,
+                moduleType = ModuleInfo.Type.Library,
+                moduleRootDir = File(pathManager.projectDir, "mp/$name"),
+                externalBuildInfos = listOf(ExternalBuildInfo(
+                    type = ExternalBuildType.Cpp,
+                    inputDirs = listOf(sharedRoot),
+                    taskPath = ":mp:$name:mergeDebugNativeLibs",
+                    assetsOutputDir = null,
+                    nativeOutput = File(pathManager.projectDir, "build/$name"),
+                )),
+            )
+        }
+        handler.init(context.copy(modules = modules))
+
+        val changed = handler.filter(listOf(source))
+
+        assertEquals(1, changed.size)
+        assertEquals(CompileFile.Type.ExternalBuildSource, changed.single().type)
     }
 
     @Test

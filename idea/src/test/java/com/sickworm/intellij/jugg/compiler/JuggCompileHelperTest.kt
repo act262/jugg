@@ -366,6 +366,51 @@ class JuggCompileHelperTest {
     }
 
     @Test
+    fun preprocessIncrementalCompile_sharedSourceWithUnsupportedTarget_forcesGradleFallback() {
+        val fixture = createFixture()
+        val sharedRoot = temporaryFolder.newFolder("shared-native-source")
+        val source = File(sharedRoot, "shared.cpp").apply { writeText("void sharedCall() {}") }
+        val supported = ModuleInfo.virtualModule.copy(
+            name = "supported",
+            moduleRootDir = File(sharedRoot, "supported"),
+            externalBuildInfos = listOf(ExternalBuildInfo(
+                type = ExternalBuildType.Cpp,
+                inputDirs = listOf(sharedRoot),
+                taskPath = ":supported:mergeDebugNativeLibs",
+                assetsOutputDir = null,
+                nativeOutput = File(sharedRoot, "build/supported"),
+            )),
+        )
+        val unsupported = ModuleInfo.virtualModule.copy(
+            name = "unsupported",
+            moduleRootDir = File(sharedRoot, "unsupported"),
+            externalBuildInfos = listOf(ExternalBuildInfo(
+                type = ExternalBuildType.Cpp,
+                inputDirs = listOf(sharedRoot),
+                taskPath = null,
+                assetsOutputDir = null,
+                nativeOutput = null,
+                unsupportedReason = "Native task not found",
+            )),
+        )
+        val context = mock<ICompileContext>()
+        whenever(context.modules).thenReturn(linkedMapOf(supported.name to supported, unsupported.name to unsupported))
+        whenever(fixture.compileContextManager.compileContext).thenReturn(context)
+        whenever(fixture.options.compileCommand).thenReturn("./gradlew :app:assembleDebug")
+        whenever(fixture.deployHistoryManager.getFullBuildInfo()).thenReturn(
+            FullBuildInfo("./gradlew :app:assembleDebug", BuildTarget.APP, 1L),
+        )
+        whenever(fixture.deployFileManager.getUncompiledFiles()).thenReturn(listOf(
+            ChangedFile(CompileFile.Type.ExternalBuildSource, source, sharedRoot, supported),
+        ))
+
+        val result = invokePreprocessIncrementalCompile(fixture.helper, fixture.options, fixture.uiHandler)
+
+        assertTrue(result!!.isCanFallback)
+        assertEquals("Native task not found", result.failedReason)
+    }
+
+    @Test
     fun preprocessIncrementalCompile_partiallyResolvedExternalBuilds_forcesGradleFallback() {
         val fixture = createFixture()
         val flutterRoot = temporaryFolder.newFolder("flutter-mixed")
@@ -373,7 +418,8 @@ class JuggCompileHelperTest {
             parentFile.mkdirs()
             writeText("void main() {}")
         }
-        val unresolvedFile = File(flutterRoot, "lib/unresolved.dart").apply { writeText("void main() {}") }
+        val unresolvedRoot = temporaryFolder.newFolder("unresolved-external")
+        val unresolvedFile = File(unresolvedRoot, "unresolved.dart").apply { writeText("void main() {}") }
         val module = ModuleInfo.virtualModule.copy(
             name = "app",
             externalBuildInfos = listOf(
@@ -386,7 +432,7 @@ class JuggCompileHelperTest {
                 ),
             ),
         )
-        // The second input belongs to a module that configures no external build at all.
+        // The second input does not match any external build in the current project snapshot.
         val unresolvedModule = module.copy(name = "other", externalBuildInfos = emptyList())
         val context = mock<ICompileContext>()
         whenever(context.modules).thenReturn(mapOf(module.name to module, unresolvedModule.name to unresolvedModule))
@@ -397,7 +443,7 @@ class JuggCompileHelperTest {
         )
         whenever(fixture.deployFileManager.getUncompiledFiles()).thenReturn(listOf(
             ChangedFile(CompileFile.Type.ExternalBuildSource, dartFile, File(flutterRoot, "lib"), module),
-            ChangedFile(CompileFile.Type.ExternalBuildSource, unresolvedFile, File(flutterRoot, "lib"), unresolvedModule),
+            ChangedFile(CompileFile.Type.ExternalBuildSource, unresolvedFile, unresolvedRoot, unresolvedModule),
         ))
 
         val result = invokePreprocessIncrementalCompile(fixture.helper, fixture.options, fixture.uiHandler)

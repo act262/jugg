@@ -29,6 +29,141 @@ import kotlin.test.assertTrue
 class ExternalBuildFlowTest {
 
     @Test
+    fun `builds every native module sharing one external source`() {
+        val root = Files.createTempDirectory("jugg-shared-native-source").toFile()
+        val parent = object : Disposable {
+            override fun dispose() = Unit
+        }
+        try {
+            val sharedRoot = File(root, "shared").apply { mkdirs() }
+            val sharedSource = File(sharedRoot, "shared.cpp").apply { writeText("void sharedCall() {}") }
+            val appCommonOutput = File(root, "build/appcommon")
+            val dtmpOutput = File(root, "build/dtmp")
+            val appCommon = createCppModule(
+                root,
+                "appcommon",
+                File(root, "mp/appcommon"),
+                sharedRoot,
+                ":mp:appcommon:mergeDebugNativeLibs",
+                appCommonOutput,
+            )
+            val dtmp = createCppModule(
+                root,
+                "dtmp",
+                File(root, "mp/dtmp"),
+                sharedRoot,
+                ":mp:dtmp:mergeDebugNativeLibs",
+                dtmpOutput,
+            )
+            File(root, "gradlew").apply {
+                writeText("""#!/bin/bash
+                    echo "${'$'}@" > "${File(root, "invocation.txt").path}"
+                    mkdir -p "${File(appCommonOutput, "arm64-v8a").path}"
+                    mkdir -p "${File(dtmpOutput, "arm64-v8a").path}"
+                    printf appcommon > "${File(appCommonOutput, "arm64-v8a/libappcommon.so").path}"
+                    printf dtmp > "${File(dtmpOutput, "arm64-v8a/libdtmp.so").path}"
+                """.trimIndent())
+                setExecutable(true)
+            }
+            val apk = File(root, "app.apk").also(::createEmptyApk)
+            val context = SimpleCompileContext(
+                logger = mock<Logger>(),
+                tempCompileDir = File(root, "compiled"),
+                tempModuleDir = File(root, "temp"),
+                androidHome = File(root, "android-sdk"),
+                androidJar = File(root, "android.jar"),
+                modules = linkedMapOf(dtmp.name to dtmp, appCommon.name to appCommon),
+                apkInfos = listOf(ApkInfo(apk, "com.example")),
+                projectDir = root,
+                deployedFiles = mutableListOf(),
+                incrementalDataDir = File(root, "incremental"),
+                fullBuildGradleCommand = "./gradlew :app:assembleDebug",
+            )
+
+            val result = JuggCompiler(context, parent).compile(CompileTask(
+                listOf(CompileFile(CompileFile.Type.ExternalBuildSource, sharedSource, sharedRoot, dtmp)),
+                File(root, "staging"),
+                CompileStatusHolder.DEFAULT,
+            ))
+
+            assertTrue(result.isAllSuccess)
+            assertEquals(
+                setOf("lib/arm64-v8a/libappcommon.so", "lib/arm64-v8a/libdtmp.so"),
+                result.outputs.map { it.relativeFile.invariantSeparatorsPath }.toSet(),
+            )
+            val invocation = File(root, "invocation.txt").readText().split(Regex("\\s+")).filter(String::isNotEmpty)
+            assertEquals(1, invocation.count { it == ":mp:appcommon:mergeDebugNativeLibs" })
+            assertEquals(1, invocation.count { it == ":mp:dtmp:mergeDebugNativeLibs" })
+        } finally {
+            Disposer.dispose(parent)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `fails shared source when any matching native build is unsupported`() {
+        val root = Files.createTempDirectory("jugg-shared-native-unsupported").toFile()
+        val parent = object : Disposable {
+            override fun dispose() = Unit
+        }
+        try {
+            val sharedRoot = File(root, "shared").apply { mkdirs() }
+            val sharedSource = File(sharedRoot, "shared.cpp").apply { writeText("void sharedCall() {}") }
+            val supported = createCppModule(
+                root,
+                "supported",
+                File(root, "mp/supported"),
+                sharedRoot,
+                ":mp:supported:mergeDebugNativeLibs",
+                File(root, "build/supported"),
+            )
+            val unsupported = createCppModule(
+                root,
+                "unsupported",
+                File(root, "mp/unsupported"),
+                sharedRoot,
+                null,
+                null,
+                unsupportedReason = "Native task not found",
+            )
+            File(root, "gradlew").apply {
+                writeText("""#!/bin/bash
+                    touch "${File(root, "invoked.txt").path}"
+                """.trimIndent())
+                setExecutable(true)
+            }
+            val apk = File(root, "app.apk").also(::createEmptyApk)
+            val context = SimpleCompileContext(
+                logger = mock<Logger>(),
+                tempCompileDir = File(root, "compiled"),
+                tempModuleDir = File(root, "temp"),
+                androidHome = File(root, "android-sdk"),
+                androidJar = File(root, "android.jar"),
+                modules = linkedMapOf(supported.name to supported, unsupported.name to unsupported),
+                apkInfos = listOf(ApkInfo(apk, "com.example")),
+                projectDir = root,
+                deployedFiles = mutableListOf(),
+                incrementalDataDir = File(root, "incremental"),
+                fullBuildGradleCommand = "./gradlew :app:assembleDebug",
+            )
+
+            val result = JuggCompiler(context, parent).compile(CompileTask(
+                listOf(CompileFile(CompileFile.Type.ExternalBuildSource, sharedSource, sharedRoot, supported)),
+                File(root, "staging"),
+                CompileStatusHolder.DEFAULT,
+            ))
+
+            assertTrue(!result.isAllSuccess)
+            assertTrue(result.outputs.isEmpty())
+            assertTrue(!File(root, "invoked.txt").exists())
+            assertTrue(result.details.single().getFailure().errorMessages.contains("Native task not found"))
+        } finally {
+            Disposer.dispose(parent)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `routes Flutter assets and native outputs through Jugg compile flow`() {
         val root = Files.createTempDirectory("jugg-external-build-flow").toFile()
         val parent = object : Disposable {
@@ -747,6 +882,33 @@ class ExternalBuildFlowTest {
                     cppOutput,
                 ),
             ),
+        )
+    }
+
+    private fun createCppModule(
+        projectRoot: File,
+        name: String,
+        moduleRoot: File,
+        sourceRoot: File,
+        taskPath: String?,
+        output: File?,
+        unsupportedReason: String? = null,
+    ): ModuleInfo {
+        return ModuleInfo.virtualModule.copy(
+            name = name,
+            moduleType = ModuleInfo.Type.Library,
+            moduleRootDir = moduleRoot,
+            projectRootDir = projectRoot,
+            buildVariant = "debug",
+            buildPathInfo = ModuleBuildPathInfo(projectRoot, moduleRoot, "debug", buildDirRelativePath = "build"),
+            externalBuildInfos = listOf(ExternalBuildInfo(
+                type = ExternalBuildType.Cpp,
+                inputDirs = listOf(sourceRoot),
+                taskPath = taskPath,
+                assetsOutputDir = null,
+                nativeOutput = output,
+                unsupportedReason = unsupportedReason,
+            )),
         )
     }
 

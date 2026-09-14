@@ -5,7 +5,7 @@ import com.sickworm.intellij.jugg.compiler.CompileFile
 import com.sickworm.intellij.jugg.compiler.ICompileContext
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import com.sickworm.intellij.jugg.compiler.external.isInExternalBuildCacheDirectory
-import com.sickworm.intellij.jugg.compiler.external.resolveExternalBuild
+import com.sickworm.intellij.jugg.compiler.external.resolveExternalBuilds
 import com.sickworm.intellij.jugg.compiler.relativePathForPrintSafe
 import com.sickworm.intellij.jugg.git.FileMatcher
 import com.sickworm.intellij.jugg.git.IFileMatcher
@@ -276,14 +276,11 @@ class FileChangesHandler(
         if (file.hasExcludedExternalBuildDirectory()) {
             return null
         }
-        getModules().forEach { module ->
-            val buildInfo = resolveExternalBuild(module, file) ?: return@forEach
-            val baseDir = buildInfo.inputDirs.firstOrNull { sourceDir ->
-                file.pathEquals(sourceDir) || file.isChild(sourceDir)
-            } ?: file.absoluteFile.normalize().parentFile ?: return@forEach
-            return ChangedFile(CompileFile.Type.ExternalBuildSource, file, baseDir, module)
-        }
-        return null
+        val target = resolveExternalBuilds(getModules(), file).firstOrNull() ?: return null
+        val baseDir = target.buildInfo.inputDirs.firstOrNull { sourceDir ->
+            file.pathEquals(sourceDir) || file.isChild(sourceDir)
+        } ?: file.absoluteFile.normalize().parentFile ?: return null
+        return ChangedFile(CompileFile.Type.ExternalBuildSource, file, baseDir, target.module)
     }
 
     private fun checkComposeResource(file: File): ChangedFile? {

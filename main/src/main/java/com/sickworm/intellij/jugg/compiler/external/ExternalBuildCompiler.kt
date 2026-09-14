@@ -30,24 +30,30 @@ class ExternalBuildCompiler(
     override fun doCompile(task: CompileTask): CompileResult {
         // Every changed external input must resolve; a partially resolved round would run only some
         // builds and still report all files as compiled.
-        val resolved = task.files.map { it to resolveBuild(it) }
+        val resolved = task.files.map { it to resolveBuilds(it) }
         if (resolved.isEmpty()) {
             return task.failed("External build metadata not found")
         }
-        resolved.firstOrNull { it.second == null }?.first?.let { unresolved ->
+        resolved.firstOrNull { it.second.isEmpty() }?.first?.let { unresolved ->
             return task.failed("External build metadata not found: ${unresolved.file.name}")
         }
         resolved.firstOrNull { !it.first.file.exists() }?.first?.let { missing ->
             return task.failed("External build source no longer exists: ${missing.file.name}")
         }
-        val builds = resolved.map { (file, buildInfo) -> moduleOf(file) to buildInfo!! }.distinctBy {
-            it.second.taskPath ?: "${it.second.type}:${it.second.inputDirs}"
-        }
-        builds.firstOrNull { !it.second.isSupported }?.second?.let { unsupported ->
+        val targets = resolved.flatMap { it.second }
+        targets.firstOrNull { !it.buildInfo.isSupported }?.buildInfo?.let { unsupported ->
             return task.failed(unsupported.unsupportedReason ?: "External build is not supported")
         }
+        val builds = targets.distinctBy { target ->
+            listOf(
+                target.module.moduleRootDir.absoluteFile.normalize().path,
+                target.module.buildVariant,
+                target.buildInfo.taskPath,
+                target.buildInfo.type,
+            )
+        }
         val gradleCommand = getFullBuildGradleCommand() ?: return task.failed("Gradle command not found")
-        val buildNames = builds.map { it.second.type.name }.distinct().joinToString("/")
+        val buildNames = builds.map { it.buildInfo.type.name }.distinct().joinToString("/")
         logger.info("Compiling $buildNames sources with Gradle...")
         val requests = builds.map { (module, buildInfo) ->
             ExternalBuildInfoRequestItem(
@@ -109,10 +115,14 @@ class ExternalBuildCompiler(
         )
     }
 
-    private fun resolveBuild(file: CompileFile): ExternalBuildInfo? = resolveExternalBuild(moduleOf(file), file.file)
-
-    /** Uses the latest module snapshot; changed files may still hold the module read before a refresh. */
-    private fun moduleOf(file: CompileFile): ModuleInfo = context.modules[file.module.name] ?: file.module
+    private fun resolveBuilds(file: CompileFile): List<ExternalBuildTarget> {
+        val modules = context.modules.values.toList()
+        val hasAnchor = modules.any { module ->
+            module.name == file.module.name &&
+                    module.moduleRootDir.absoluteFile.normalize() == file.module.moduleRootDir.absoluteFile.normalize()
+        }
+        return resolveExternalBuilds(if (hasAnchor) modules else modules + file.module, file.file)
+    }
 
     private fun getFullBuildGradleCommand(): String? {
         val command = try {

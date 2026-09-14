@@ -19,6 +19,7 @@ Jugg can update already generated native library / `.so` files. For C/C++ module
 |---|---|---|
 | Update an existing `.so` under an ABI directory in the project | Supported | Updates the target APK, re-signs it, and installs it |
 | Change C/C++ source managed by Gradle | Supported | Runs the native build task for the current variant, then updates the generated `.so` |
+| Share one C/C++ source across multiple Native modules | Supported | Runs all distinct native tasks for matching modules once, then updates the `.so` files produced by each module |
 | Flutter Profile/Release produces `app.so` or native assets | Supported | Runs the Flutter native output task for the current variant, reads native libraries for the target ABI from that task's own output, then updates the APK |
 | Flutter Debug produces assets only, without native libraries | Supported | Updates `flutter_assets` only and does not require native output; an empty native directory still lets the compilation succeed, and no APK is repackaged, re-signed, or installed |
 | Update native libraries for multiple ABIs in the same run | Supported according to target APK ownership | Each target APK receives only its own native libraries |
@@ -30,8 +31,9 @@ Jugg can update already generated native library / `.so` files. For C/C++ module
 
 ```text
 C/C++ source changes
-  -> Run the native Gradle task for the current variant
-  -> Collect new .so files from the intermediate output directory
+  -> Find every Native module that shares the source
+  -> Run all distinct native Gradle tasks for the current variant in one invocation
+  -> Collect new .so files from each module's intermediate output directory
 
 Flutter Dart source changes
   -> Run the Flutter native output task for the current variant
@@ -61,11 +63,12 @@ Profile/Release use the AOT artifact `libapp.so`, which is a native library and 
 - The direct file-change entry point recognizes only existing `.so` files under the project directory whose parent directory is `armeabi`, `armeabi-v7a`, `arm64-v8a`, `x86`, or `x86_64`.
 - The C/C++ source entry requires Android Gradle configuration with a CMake or ndk-build file and a discoverable native task for the current variant. Jugg does not watch generated files under `.cxx`, `.externalNativeBuild`, or Gradle `build` directories.
 - Each detected C/C++ source change runs the native task. Artifact content checks only avoid writing identical output back to the APK; they do not skip native compilation.
+- When one physical source matches multiple Native modules, every matching task must be supported and succeed, and every module output must be collectable. Otherwise that source falls back or fails as a whole instead of marking a partially successful result as compiled.
 - Each detected Dart source change runs the Flutter native output task for the current variant. Jugg reads only the native output that task declares and resolves the `.so` files under each ABI from it, whichever form that output takes. It does not recursively guess native output from Flutter intermediate directories, and it does not assemble artifact locations from fixed paths.
 - If Jugg recognizes a Flutter source root but cannot find the compile task, the assets output directory, or native output metadata, it falls back to a full Gradle build. If the native output cannot be read, or an archive contains unsafe or duplicate native entries, the current compilation fails. A build mode that legitimately produces no native library, such as Debug, succeeds as long as the assets output is valid.
 - If Jugg recognizes a C/C++ source root but cannot find its task or output metadata, it falls back to a full Gradle build. The current compilation fails if the external task fails or the declared output directory is missing or unreadable. If the task succeeds and the output directory is accessible but contains no valid `.so`, the round succeeds without native deployment output.
 - CMake and ndk-build configuration files inside the project (`CMakeLists.txt`, `*.cmake`, `Android.mk`, `Application.mk`) are configuration inputs of the current variant's native build. After you change them, Jugg runs the existing native task and collects and merges only that module's latest external build information in the same Gradle invocation instead of asynchronously refreshing the full project model. Newly added out-of-project shared sources, assembly files, and include roots immediately enter the subsequent watch scope. Configuration the task cannot cover, such as NDK, ABI, native source sets, or packaging rules, still needs a full Gradle build to refresh the APK baseline.
-- C/C++ inputs trigger recursively by directory. Configuration roots, parent directories of metadata sources, and include roots are merged into the smallest practical set of watched directories. Non-excluded files in those directories may cause a small number of false triggers, but Gradle's up-to-date check decides whether native work actually runs. `.cxx`, `.externalNativeBuild`, and build outputs remain excluded.
+- C/C++ inputs trigger recursively by directory. Configuration roots, parent directories of metadata sources, and include roots are merged into the smallest practical set of watched directories. Non-excluded files in those directories may cause a small number of false triggers. A broad shared directory may also trigger multiple modules, including one with a large output; Gradle and Ninja use up-to-date checks and real dependencies to decide whether native work actually runs. `.cxx`, `.externalNativeBuild`, and build outputs remain excluded.
 - When a recognized C/C++ source or native configuration file is deleted, Jugg falls back to a full Gradle build. If a native artifact collected in the previous round is no longer produced after an external build succeeds, the round still succeeds without a removal result, and the old `.so` remains until a full Gradle build refreshes the APK baseline.
 - When not all external inputs in one round can be resolved, such as a multi-module project where only one module configures a native build, the whole round falls back to a full Gradle build instead of building only the recognizable part.
 - Deleting an `.so` does not produce data that removes the file from the APK and does not fail incremental compilation by itself. The installed APK continues containing the old native library. Run a full Gradle build only when the deletion must actually take effect.

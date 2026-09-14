@@ -16,6 +16,7 @@ import com.sickworm.intellij.jugg.deploy.direct.DirectOverlayDeployFailedExcepti
 import com.sickworm.intellij.jugg.deploy.direct.DirectOverlayDirtyException
 import com.sickworm.intellij.jugg.deploy.direct.DirectOverlaySwapTransport
 import com.sickworm.intellij.jugg.deploy.hotreload.DirectAppSandboxDeployTransport
+import com.sickworm.intellij.jugg.deploy.hotreload.RootlessCompatPending
 import com.sickworm.intellij.jugg.deploy.run.AsDeployerCompat
 import com.sickworm.intellij.jugg.deploy.run.IAsDeployerCompat
 import com.sickworm.intellij.jugg.deploy.run.IJuggDeployerDeploymentService
@@ -50,6 +51,9 @@ class JuggDeployer(
         var skippedInstall = false
         var needsRestart = false
         var overlayId: String? = null
+
+        /** Staged compat request whose commit waits for the app-side import result. */
+        var rootlessCompatPending: RootlessCompatPending? = null
     }
 
     /**
@@ -262,12 +266,18 @@ class JuggDeployer(
             val costTime = System.currentTimeMillis() - startTime
             logger.info(
                 "after direct app sandbox deploy, cost: ${costTime}ms, " +
-                    "overlay id: ${directResult.overlayId.sha}, needsRestart: ${directResult.needsRestart}",
+                    "overlay id: ${directResult.overlayId.sha}, needsRestart: ${directResult.needsRestart}, " +
+                    "pendingRequest: ${directResult.pendingRequest?.requestId}",
             )
-            deploymentService.storeEntry(deviceSerial, packageName, newFiles, directResult.overlayId, logger)
+            // A rootless request is only committed after the app confirms the import, so the
+            // deployment cache must keep pointing at the previous overlay until then.
+            if (directResult.pendingRequest == null) {
+                deploymentService.storeEntry(deviceSerial, packageName, newFiles, directResult.overlayId, logger)
+            }
             return Result().also {
                 it.overlayId = directResult.overlayId.sha
                 it.needsRestart = directResult.needsRestart
+                it.rootlessCompatPending = directResult.pendingRequest
             }
         }
         tryDirectOverlaySwap(packageName, data, speculativeDump, arch)?.let { overlayId ->

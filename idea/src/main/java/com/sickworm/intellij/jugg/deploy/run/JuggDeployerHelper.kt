@@ -13,7 +13,9 @@ import com.sickworm.intellij.jugg.compiler.jarDexFileName
 import com.sickworm.intellij.jugg.deploy.*
 import com.sickworm.intellij.jugg.deploy.direct.DirectOverlaySwapTransport
 import com.sickworm.intellij.jugg.deploy.flutter.FlutterJitCacheInvalidator
+import com.sickworm.intellij.jugg.deploy.direct.RootlessCompatDeployArchive
 import com.sickworm.intellij.jugg.deploy.hotreload.DirectAppSandboxDeployTransport
+import com.sickworm.intellij.jugg.deploy.hotreload.RootlessCompatImportConfirmer
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestApkSelector
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestResultModel
 import com.sickworm.intellij.jugg.deploy.run.applychanges.AndroidDeployType
@@ -24,6 +26,7 @@ import com.sickworm.intellij.jugg.deploy.run.flow.DeployRetryHandler
 import com.sickworm.intellij.jugg.deploy.run.flow.DeployStateRecover
 import com.sickworm.intellij.jugg.deploy.run.flow.IJuggDeployHelperRunHost
 import com.sickworm.intellij.jugg.deploy.run.flow.IJuggDeployRunTaskExecutor
+import com.sickworm.intellij.jugg.deploy.run.utils.AdbLogWrapper
 import com.sickworm.intellij.jugg.deploy.run.flow.JuggDeployHelperRunHostBridge
 import com.sickworm.intellij.jugg.deploy.run.instrument.LibraryTestApkBackfillHelper
 import com.sickworm.intellij.jugg.deploy.run.instrument.TestLauncher
@@ -355,6 +358,7 @@ class JuggDeployerHelper(
         } else if (isNeedRestartApp || androidDeployType == AndroidDeployType.INSTALL) {
             logger.debug("Restarting app...")
             restartApp(device, compileUiHandler.isDebugRun)
+            confirmRootlessCompatImports(baseLaunchContext)
             if (isNeedSecondComposeResourceRestart) {
                 composeResourceRestartHelper.waitUntilTransformCacheReady(
                     baseLaunchContext.getAppSandboxExecutor(deployTargetManager.getPackageName(), logger),
@@ -394,6 +398,49 @@ class JuggDeployerHelper(
         isRunning = false
 
         return launchResult
+    }
+
+    /**
+     * Waits for the app to import every staged rootless compat request and commits the deployment
+     * cache only for the confirmed ones. A missing, failed or timed out import fails the deploy
+     * before any lifecycle state advances, so the app keeps running the old overlay.
+     */
+    private fun confirmRootlessCompatImports(launchContext: LaunchContext) {
+        val pendingList = launchContext.rootlessCompatPending
+        if (pendingList.isEmpty()) {
+            return
+        }
+        val adb = launchContext.deviceAdb
+        val adbLogger = AdbLogWrapper(logger)
+        pendingList.forEach { pending ->
+            logger.debug("Waiting for the app to import rootless compat request ${pending.requestId}.")
+            val result = RootlessCompatImportConfirmer(adb, logger).await(pending.requestId)
+            if (result == null || !result.success) {
+                val detail = result?.let { "${it.stage}: ${it.detail}".trim() }.orEmpty()
+                    .ifEmpty { "the app did not report the import result" }
+                throw IllegalStateException(
+                    "Rootless compat deploy was not confirmed by ${pending.packageName} " +
+                            "(${pending.requestId}): $detail",
+                )
+            }
+            logger.info("Rootless compat deploy confirmed: package=${pending.packageName}, " +
+                    "requestId=${pending.requestId}, overlayId=${pending.overlayId.sha}")
+            deploymentService.storeEntry(
+                adb.serial,
+                pending.packageName,
+                asDeployerCompat.parseApks(pending.apkPaths),
+                pending.overlayId,
+                adbLogger,
+            )
+            runCatching {
+                adb.execAdbShellCmd(
+                    "rm -rf ${RootlessCompatDeployArchive.requestDir(pending.packageName, pending.requestId)}",
+                )
+            }.onFailure {
+                logger.debug("Failed to clean the rootless compat request of ${pending.requestId}", it)
+            }
+        }
+        pendingList.clear()
     }
 
     private fun restartApp(device: IDevice, isDebugRun: Boolean) {

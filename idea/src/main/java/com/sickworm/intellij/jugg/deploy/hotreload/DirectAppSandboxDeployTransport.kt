@@ -14,6 +14,7 @@ import com.sickworm.intellij.jugg.deploy.direct.DirectOverlayWriteRequestBuilder
 import com.sickworm.intellij.jugg.deploy.direct.DirectOverlayWriteResult
 import com.sickworm.intellij.jugg.deploy.direct.DirectOverlayWriter
 import com.sickworm.intellij.jugg.deploy.run.DeployItem
+import com.sickworm.intellij.jugg.deploy.run.flow.DeployRetryHandler
 import com.sickworm.intellij.jugg.deploy.run.IAsDeployerCompat
 import com.sickworm.intellij.jugg.deploy.run.JuggDeployData
 import com.sickworm.intellij.jugg.deploy.run.JuggOverlayId
@@ -51,9 +52,7 @@ class DirectAppSandboxDeployTransport(
         }
         val sandbox = launchContext.getAppSandboxExecutor(packageName, logger)
         if (sandbox.mode == AppSandboxExecutor.Mode.UNAVAILABLE) {
-            throw DirectOverlayDeployFailedException(
-                "Direct app sandbox unavailable for $packageName: ${sandbox.unavailableReason}",
-            )
+            return deployWithoutAppSandbox(packageName, data, overlayUpdate, asDeployerCompat, sandbox)
         }
         val requiredOverlayUpdate = overlayUpdate ?: throw DirectOverlayDeployFailedException(
             "Direct app sandbox deploy requires an existing deployment cache for $packageName.",
@@ -63,6 +62,55 @@ class DirectAppSandboxDeployTransport(
         prepareStartupAgent(packageName, sandbox, appArch)
         val overlayId = writeOverlay(packageName, requiredOverlayUpdate, asDeployerCompat, sandbox, data.isFullRes)
         return finishDeploy(packageName, data, pids, sandbox, overlayId)
+    }
+
+    /**
+     * The app sandbox is unavailable: ordinary shell, adb root and su all failed, so nothing can be
+     * written into the app data dir from the host. Compat payloads are staged for the app to import
+     * during its next startup; any other payload must first be redeployed as compat data.
+     */
+    private fun deployWithoutAppSandbox(
+        packageName: String,
+        data: JuggDeployData,
+        overlayUpdate: JuggOverlayUpdate?,
+        asDeployerCompat: IAsDeployerCompat,
+        sandbox: AppSandboxExecutor,
+    ): DirectAppSandboxDeployResult {
+        if (!data.isCompatDeploy) {
+            // Ordinary payloads cannot be written without a sandbox; ask for one compat redeploy.
+            // Empty dry payloads take this path too, so the recover dry check does not hard fail on
+            // a device whose sandbox can never become available.
+            throw IllegalStateException(DeployRetryHandler.REDEPLOY_WITH_COMPAT_MESSAGE)
+        }
+        val requiredOverlayUpdate = overlayUpdate ?: throw DirectOverlayDeployFailedException(
+            "Direct app sandbox deploy requires an existing deployment cache for $packageName.",
+        )
+        if (data.isEmpty) {
+            // Compat conversion keeps the payload empty only when there was nothing to deploy.
+            throw DirectOverlayDeployFailedException(
+                "Direct app sandbox unavailable for $packageName: ${sandbox.unavailableReason}",
+            )
+        }
+        val prepared = DirectOverlayWriteRequestBuilder(logger).build(
+            packageName = packageName,
+            overlayUpdate = requiredOverlayUpdate,
+            asDeployerCompat = asDeployerCompat,
+            isFullResourcePush = data.isFullRes,
+        )
+        val staged = RootlessCompatDeployStaging(launchContext.deviceAdb, logger)
+            .stage(packageName, prepared.request)
+        logger.info("App sandbox is unavailable, compat payload staged for the app to import on its " +
+                "next start. requestId=${staged.requestId}")
+        return DirectAppSandboxDeployResult(
+            overlayId = prepared.overlayId,
+            needsRestart = true,
+            pendingRequest = RootlessCompatPending(
+                packageName = packageName,
+                requestId = staged.requestId,
+                overlayId = prepared.overlayId,
+                apkPaths = data.apks.flatMap { apkInfo -> apkInfo.files }.map { it.apkFile.path },
+            ),
+        )
     }
 
     private fun prepareStartupAgent(
@@ -238,4 +286,6 @@ class DirectAppSandboxDeployTransport(
 data class DirectAppSandboxDeployResult(
     val overlayId: JuggOverlayId,
     val needsRestart: Boolean,
+    /** Non-null when the payload is staged on device and awaits the app-side import result. */
+    val pendingRequest: RootlessCompatPending? = null,
 )

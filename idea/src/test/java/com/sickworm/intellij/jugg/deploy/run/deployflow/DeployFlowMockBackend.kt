@@ -10,6 +10,8 @@ import com.sickworm.intellij.jugg.logger.JuggLogger
 import com.sickworm.intellij.jugg.mock.AssembleAndroidProjectOnce
 import com.sickworm.intellij.jugg.mock.JuggMockProject
 import com.sickworm.intellij.jugg.mock.TestGlobal
+import org.mockito.Mockito
+import org.mockito.kotlin.any
 import java.io.File
 
 /**
@@ -34,6 +36,7 @@ object DeployFlowMockBackend : DeployFlowDeviceBackend {
             DeployFlowCaseId.DF_L2_010 -> buildDfL2010()
             DeployFlowCaseId.DF_L2_011 -> buildDfL2011()
             DeployFlowCaseId.DF_L2_012 -> buildDfL2012()
+            DeployFlowCaseId.DF_L2_013 -> buildDfL2013()
         }
     }
 
@@ -334,6 +337,33 @@ object DeployFlowMockBackend : DeployFlowDeviceBackend {
             onInstall = null,
             deployData = DeployFlowTestSupport.fullResourceDeployData(overlayCount = 3),
         )
+    }
+
+    /**
+     * System app on a production user ROM: Apply Changes is incompatible and the app sandbox stays
+     * unavailable, so Jugg must convert the payload to compat data and stage it for the app.
+     */
+    private fun buildDfL2013(): DeployFlowFixture {
+        val fixture = buildMatchedNotDeployableFixture(
+            caseId = DeployFlowCaseId.DF_L2_013,
+            recoverRunHost = null,
+            afterRecoverSuccess = null,
+            optimisticSwapPolicy = DeployFlowAsDeployerCompatBoundary.OptimisticSwapPolicy.FORBIDDEN,
+            onInstall = null,
+        )
+        val normalData = DeployFlowTestSupport.incrementalDeployData()
+        Mockito.`when`(
+            fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+        ).thenReturn(normalData)
+        Mockito.`when`(fixture.deployFileManager.appendCompatDeployFiles(any())).thenAnswer {
+            DeployFlowTestSupport.compatDeployData(it.getArgument(0))
+        }
+        Mockito.doAnswer {
+            fixture.virtualDevice.onAppRestart()
+            fixture.virtualDevice.runRootlessCompatImport()
+            true
+        }.`when`(fixture.deployTargetManager).restartApp(fixture.device)
+        return fixture
     }
 
     private fun buildDeployableApplyChangesFixture(

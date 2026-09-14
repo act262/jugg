@@ -104,6 +104,7 @@ class JuggDeployTask(
                     launchContext.launchApp = true
                     needsRestartApp = true
                 }
+                result.rootlessCompatPending?.let { launchContext.rootlessCompatPending += it }
                 overlayIds[applicationId] = result.overlayId ?: ""
             } catch (e: JuggDeployerException) {
                 logger.error(e, "%s failed: %s %s", deployType, e.message, e.details)

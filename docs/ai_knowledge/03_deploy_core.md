@@ -34,7 +34,10 @@
 | `DirectOverlaySwapTransport` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/direct/DirectOverlaySwapTransport.kt` | Direct Overlay swap transport。只替换 Apply Changes 的 overlay update 动作，不接管部署生命周期。 |
 | `AppSandboxExecutor` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/AppSandboxExecutor.kt` | 统一 app 私有目录命令；严格探测 Apply Changes 的 `run-as`、UID 与 SELinux label 前提，并在不兼容时固定普通 shell、root adbd 或非交互 `su` 模式与真实 `dataDir`。 |
 | `DirectOverlayWriter` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/direct/DirectOverlayWriter.kt` | 通过 app sandbox 原子写入设备 `code_cache/.overlay`，新 overlay id 最后提交。 |
-| `DirectAppSandboxDeployTransport` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/hotreload/DirectAppSandboxDeployTransport.kt` | 在 AS deployer 前接管 `run-as` 不兼容应用的增量 overlay payload，组合 Direct Overlay、Jugg JVMTI redefine 与重启降级。 |
+| `DirectAppSandboxDeployTransport` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/hotreload/DirectAppSandboxDeployTransport.kt` | 在 AS deployer 前接管 `run-as` 不兼容应用的增量 overlay payload，组合 Direct Overlay、Jugg JVMTI redefine 与重启降级；sandbox 完全不可用时改为请求 compat redeploy 或暂存 rootless 兼容请求。 |
+| `RootlessCompatDeployStaging` / `RootlessCompatImportConfirmer` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/hotreload/RootlessCompatDeployStaging.kt` | 无 sandbox 时暂存兼容 payload 到 `/data/local/tmp/jugg/rootless-compat`，并按 requestId 等待 App 导入结果。 |
+| `RootlessCompatDeployArchive` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/direct/RootlessCompatDeployArchive.kt` | rootless pending archive 协议：payload ZIP、`request.properties` 元数据、payload SHA-256 与导入结果行解析。 |
+| `RootlessCompatDeployImporter` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/hotfix/RootlessCompatDeployImporter.java` | App 启动早期导入暂存请求，私有 staging 后原子提交 `code_cache/.overlay`，overlay id 最后写入。 |
 | `DirectOverlayStateChecker` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/direct/DirectOverlayStateChecker.kt` | recover 校验 history/cache/device 三路一致；swap 前只校验 device overlay。 |
 | `DeployHistoryManager` / `JuggDeploymentService` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/DeployHistoryManager.kt`, `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeploymentService.kt` | 两套 checkpoint 来源：Jugg 自有部署历史与 Android Studio deployment cache。Direct Overlay recover 同时依赖二者。 |
 
@@ -202,7 +205,7 @@ reinstall recover 不恢复历史资源类型：重装已经停止或替换了�
 | 失败信号 | 行为 |
 |---|---|
 | transient offline | 等待 ADB transport 恢复，成功后用原 deploy data redeploy。 |
-| `REDEPLOY_WITH_COMPAT_MESSAGE` | `appendCompatDeployFiles()` 后 compat redeploy。 |
+| `REDEPLOY_WITH_COMPAT_MESSAGE` | `appendCompatDeployFiles()` 后 compat redeploy。`DirectAppSandboxDeployTransport` 在 `AppSandboxExecutor.mode == UNAVAILABLE` 且 payload 还不是兼容数据时抛出的就是这个信号，因此该场景不会继续走无效 recover。 |
 | `JVMTI_ERROR_UNMODIFIABLE_CLASS` / `app restart` / redefiner/internal error | fallback 到 HOT_FIX 后 redeploy。 |
 | `OutOfMemoryError` / `Java heap space` / `GC overhead limit exceeded` | 不在当前 IDE 进程重试或自动 Gradle fallback；清理兼容资源 APK 缓存，并提示重启 Android Studio、增大 IDE heap 或执行 Gradle install。 |
 | `INSTRUMENTATION_FAILED` / `IOException occurred` | 不改 payload，直接重试。 |
@@ -229,6 +232,8 @@ Direct 权限模式创建的文件可能只有静态 `app_data_file:s0`，不能
 Direct transport 不再以 class-only 白名单拒绝 overlay，`data.isFullRes` 原样传递到 `DirectOverlayWriteRequestBuilder`。Manifest/native library 的 APK 改写、重签和 reinstall 仍由上游部署流程负责，随后可重放 overlay。Direct 权限不可用或 deployment cache 缺失时提前失败，不回落到必然失败的 AS deployer；ADB transport/offline 异常继续按原有 transient 语义传播。
 
 空 payload 仍完整执行 device overlay ID 校验和 Direct Overlay checkpoint 提交；运行中主进程随后发送空 runtime 请求并取得明确终态，不创建 class redefine，也不触发 Activity 或 App 重启。主进程未运行时在 checkpoint 提交后直接成功。
+
+普通 shell、root adbd 和非交互 `su` 全部不可用时（`AppSandboxExecutor.mode == UNAVAILABLE`），transport 不再尝试写 App sandbox：非兼容 payload（含 recover 的空 dry payload）抛 `REDEPLOY_WITH_COMPAT_MESSAGE`，`DeployStateRecover.tryDryDeploy` 忽略该信号并返回成功，真正的增量 payload 走一次 compat redeploy；兼容 payload 则由 `RootlessCompatDeployStaging` 暂存到 `/data/local/tmp/jugg/rootless-compat/<package>/<requestId>/`，本轮不写 deployment cache，待 App 在下次启动导入后由 `JuggDeployerHelper` 确认并 `storeEntry`。该路径不准备 startup/dynamic agent，也不调用 `DirectHotReloadWriter`。
 
 准备 Jugg startup agent 后，Direct transport 写入 `code_cache/.jugg_direct_resource_overlay` 标记。Android 11+ 的 startup agent 通过 `LoadedApk.getResources()` hook 和迁移的 `ResourceOverlays` 加载 `.overlay/*.apk` 下的 `resources.arsc`、`res/`、`assets/`；资源 loader 只加入真实宿主 APK 对应的 Resources，不污染 WebView 等非宿主资源。运行中提交资源后，dynamic agent 更新 loader providers、补挂现存宿主 Resources，再重建 Activity；连续资源更新不会复用旧 provider。兼容部署标记存在时保持原资源 APK 路径，Android 8～10 继续通过进程重启生效。
 
@@ -314,6 +319,7 @@ Manifest、native library 等 `updateApkFiles` 继续由 APK 改写、重签和�
 
 ## 7. 隐形约束
 
+- Rootless 兼容部署把“写 overlay”交给目标 App：Host 只把兼容 payload 暂存到 `/data/local/tmp/jugg/rootless-compat`，App 在 `BootstrapApplication.attachBaseContext()` 早期导入 `code_cache/.overlay` 并最后写 overlay id。Host 只有在收到匹配 requestId 的导入结果后才提交 deployment cache、deploy history 和文件状态，超时按失败处理并保留旧 overlay。
 - `overlay id` 是部署一致性的核心 checkpoint：Jugg history、Studio deployment cache、设备 overlay 目录任一不一致，都可能导致重装或 recover。
 - `exceptOverlayIds` 防止同 package 在不同项目/不同设备间串状态；recover 或同轮切片会按需跳过检查。
 - 切片部署不能留下半提交 overlay：一旦前序 slice 已成功而后续 slice 失败，必须先清理设备端 `code_cache/.overlay` 再返回失败。

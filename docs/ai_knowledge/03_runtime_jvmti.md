@@ -34,6 +34,7 @@
 | `ResourceOverlays` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/instrument/ResourceOverlays.java` | 将展开 APK 目录中的资源和 assets 接入 Android 11+ ResourcesLoader；限 Direct sandbox 标记和宿主 APK，兼容部署沿用资源 APK |
 | `FlutterAssetRefresh` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/instrument/FlutterAssetRefresh.java` | 让 FlutterEngine 使用 overlay-aware AssetManager：已启动 Dart 的 Engine 走 `updateJavaAssetManager()`，未启动的替换 `DartExecutor.assetManager`，宿主包上下文在 `ContextImpl#createPackageContext` exit 补齐 overlay loader；失败按批 warn + Toast |
 | `HotfixLoader` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/hotfix/HotfixLoader.java` | 初始化 app code cache 路径，识别 compat flag，并安装 dex/resource patch |
+| `RootlessCompatDeployImporter` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/hotfix/RootlessCompatDeployImporter.java` | 在 `BootstrapApplication.attachBaseContext()` 早期导入 Host 暂存的 rootless 兼容请求：校验协议、包名、requestId、payload SHA-256 与 expected overlay id，私有 staging 后原子提交 `code_cache/.overlay`，overlay id 最后写入；失败只保留旧 overlay 并输出一行结果日志 |
 | `jugg_agent_setup.sh` | `jvmti_agent/src/main/script/jugg_agent_setup.sh` | 在 app `code_cache/startup_agents` 中放置版本化 agent so |
 | `buildAgentBundle.gradle` | `jvmti_agent/buildAgentBundle.gradle` | 将 Jugg runtime 与预处理后的 Dragonfly JAR 编译进 `jugg-instruments.jar`，并打包 64/32 位 so 和 setup script，生成 plugin resource |
 
@@ -46,6 +47,8 @@
 | Jugg agent bundle | `/data/local/tmp/jugg/{AGENT_VERSION}` | 设备全局临时目录，包含 `jugg-instruments.jar`、64/32 位 so、setup script |
 | App startup agent | `{app}/code_cache/startup_agents/{version}-jugg_jvmti_agent(.so/_alt.so)` | app sandbox 内真正被系统加载的 startup agent |
 | Direct instrumentation JAR | `{app}/code_cache/startup_agents/{version}-jugg-instruments.jar` | 仅 Direct app sandbox 复制；让 app 进程可映射 instrumentation class，普通 `run-as` 路径继续使用全局 JAR |
+| Rootless compat 请求 | `/data/local/tmp/jugg/rootless-compat/{package}/{requestId}/` | Shell 可写的暂存请求：`payload.zip` + `request.properties` + 最后写入的 `ready`；由 App 在 `BootstrapApplication` 启动早期导入 |
+| Rootless 导入结果 | `jugg-agent` tag 日志行 | `__JUGG_ROOTLESS_IMPORT__ OK|FAILED <requestId> [<stage> <reason>]`，Host 唯一可读回的导入终态 |
 | Apply Changes agent | `{app}/code_cache/startup_agents/{versionHash}-{dollName}` | Direct Overlay 复用的 AS startup agent；由 `AsStartupAgentPusher` 推送 |
 | `.jugg_jvmti_available` | `{app}/code_cache/.jugg_jvmti_available` | native `Agent_OnAttach` 成功取得 JVMTI/JNI 后写入；不表示所有可选 framework hook 都成功 |
 | `.jugg_jvmti_not_available` | `{app}/code_cache/.jugg_jvmti_not_available` | native 无法取得 JVMTI/JNI 时写入，触发 compat device record |
@@ -116,6 +119,26 @@ DeployRetryHandler.tryRetry()
 ```
 
 `options[0] == '/'` 时按 startup agent 处理；`jugg_hot_reload:` 前缀进入 dynamic redefine。dynamic 分支不写 startup 可用性 flag，也不重复安装 framework instrumentation。
+
+### 4.3.1 Rootless 兼容 payload 的启动期导入
+
+没有可用 sandbox 时 Host 不会推送任何 agent，`BootstrapApplication` 由 APK 内的 `jugg-runtime.jar` 提供：
+
+```text
+BootstrapApplication.attachBaseContext(base)
+  -> HotfixLoader.init(base)                     初始化 codeCacheDir / overlayFilesDir
+  -> RootlessCompatDeployImporter.importPending(base)
+     -> 扫描 /data/local/tmp/jugg/rootless-compat/<package>/ 下带 ready 标记的请求（取最新一个）
+     -> app 私有文件锁串行化；拿不到锁的进程直接返回，只消费已提交 overlay
+     -> 校验 protocolVersion / packageName / requestId / payload SHA-256 / expected overlay id
+     -> 解压到 code_cache/rootless_import/<requestId>/（拒绝绝对路径、`..`、反斜杠和重复条目）
+     -> 按 Direct Overlay 规则提交：删除旧 id、清理 payload 目标、搬入文件、dex chmod 0444、最后写 id
+     -> jugg-agent tag 输出 `__JUGG_ROOTLESS_IMPORT__ OK|FAILED <requestId> [<stage> <reason>]`
+  -> HotfixLoader.isNeedEnableHotfix()            同一次进程启动即可加载新 overlay
+  -> HotfixLoader.install(base)
+```
+
+导入失败的请求不会修改已提交 overlay，也不会留下可被 `HotfixLoader` 识别为成功的 enable flag；Host 依据结果行决定是否提交 deployment cache、deploy history 与文件状态，结果缺失或超时按失败处理。
 
 ### 4.4 Direct app sandbox dynamic redefine
 

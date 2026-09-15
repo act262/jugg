@@ -1,6 +1,6 @@
 # 部署系统：核心部署机制
 
-> 最后核对：2026-09-12
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -185,6 +185,24 @@ Flutter 缓存失效只在 `data.flutterJitRuntimeFiles` 非空时执行，位�
 
 当原始部署类型是 `APPLY_CHANGES_AND_RESTART_ACTIVITY` 时，非最后一个 slice 会降级为 `APPLY_CHANGES`，只允许最后一个 slice 触发 restart activity，避免中间态 overlay 被进程启动/重载使用。若切片部署已有成功 slice，后续 slice 失败时，返回失败前必须对本轮涉及的 applicationId 执行 `run-as <applicationId> rm -rf code_cache/.overlay`，清理设备端半提交 overlay。
 
+### 4.4 App 启动目标选择
+
+`AdbCmdHelper.startDefaultApp()` 负责 install 后启动、restart、Debug restart 和 recover 启动，按整个 APK 集合分三个阶段选择启动目标，任一阶段命中即结束：
+
+| 优先级 | 候选条件 | 动作 |
+|---|---|---|
+| 1 | `MAIN` + `LAUNCHER`/`LEANBACK_LAUNCHER`，单 APK 多候选时优先带 `DEFAULT` 的 launcher | `am start [-D] [-S] -n <package>/<activity>` |
+| 2 | enabled、exported、组件名有效、含 `MAIN` + `HOME` 的第一个 Activity/activity-alias | 同上，另打印 info 说明未找到 launch Activity |
+| 3 | 前两类均不存在 | `am force-stop <package>`，打印 warn |
+
+阶段顺序必须跨整个 APK 集合执行：先遍历全部 APK 查 launch，再遍历全部 APK 查 HOME，最后 stop。不能对单个 APK 依次 fallback，否则 base APK 的 HOME Activity 会抢在 split APK 的 launch Activity 之前，破坏“launch Activity 第一优先”。每个阶段沿用 `apks.flatMap { it.files }` 的顺序，同一 APK 内沿用 Manifest 声明顺序。
+
+不引入“第一个可启动 Activity”候选：Manifest 声明顺序无法表达业务首页，且大量普通 Activity 既未声明 `exported=true` 也没有 intent-filter，`am start -n` 会稳定失败。HOME 候选必须声明 `MAIN` + `HOME`，是唯一可可靠显式启动的非 launcher 候选。
+
+第 1 级完全复用 `DefaultApkActivityLocator` 既有筛选、`DEFAULT` 优先级与 `realActivityQname` 返回行为；第 2 级由 `computeHomeActivity()` 返回节点自身 qualified name，因此显式启动 activity-alias 时不会绕过 alias 去启动其 target。`NodeActivity.getExported()` 沿用既有语义：显式声明按声明值，未声明时为 `true`；因为 HOME 候选必然带 intent filter，该默认值与 Android 判定一致，无需额外推导规则。
+
+第 3 级复用现有 `stopApp()`，不增加 Android 版本分支，也不引入 Service、Receiver、Provider 或 instrumentation 拉起方式。`IDeployTargetManager.startApp()` / `restartApp()` 的 Boolean 契约不变，只表示本次生命周期命令是否无异常完成：stop fallback 成功后仍返回 `true`，普通 deploy/install 不会因此被误判为部署失败，MCP `restart` 未设置 `waitAppReadyAfterSuccess` 时也只确认命令完成。App 此时不会 ready，显式 ready 等待、Recover 的在线检测和 Debug attach 继续走各自现有的判断与失败路径。
+
 ---
 
 ## 5. recover / retry 状态机
@@ -355,6 +373,8 @@ Manifest、native library 等 `updateApkFiles` 继续由 APK 改写、重签和�
 - dex merge 阈值是 `DeployDataPlanner.MAX_DEPLOYED_DEX_COUNT = 1000`；超过阈值时把 staging dex + 未 staging 的历史 dex merge，失败则保留原数据继续部署。
 - transient offline 的设计目标是在失败点附近恢复：shell/deployer 层原地等待并重试一次，编排层只处理已经冒泡的 offline 失败。
 - 默认 install 路径遇到 transient failure 可能从 DELTA 升级为 FULL install；自定义脚本自身失败不自动重试，脚本成功后的其它失败仍按原策略处理。不是所有 install 失败都应该进入 incremental fallback。
+- launch Activity 的筛选、排序和 `realActivityQname` 是既有契约，新增的 HOME fallback 不得改变第 1 级行为；HOME 候选的 enabled/exported/组件名筛选只作用于第 2 级，不能反过来过滤 launch 候选。
+- 无 launch/HOME Activity 时唯一动作是 `am force-stop <package>`：它让 App 进入 stopped 状态，后台 Service、Receiver 或 Job 不保证自行恢复。该结果不算部署失败，也不伪装成 App 已启动或已 ready，且不得退化为启动任意普通 Activity。
 
 ---
 

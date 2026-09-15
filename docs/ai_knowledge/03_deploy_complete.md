@@ -1,6 +1,6 @@
 # 部署系统：端到端流程（Run 到设备）
 
-> 最后核对：2026-09-06
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -77,6 +77,8 @@ deployDevice()
 Gradle 编译对应 `isInstall=true`；增量编译对应 `isInstall=false`。这个分界决定后续进入 `deployInstall()` 还是 `deployIncrementalChanges()`。
 
 增量部署还有一层 transport 类型：当前非 warm-up、非空且不需要重启 App 的 payload 会设置 `isNeedRestartActivity=true`，映射为 `APPLY_CHANGES_AND_RESTART_ACTIVITY`。Android Studio transport 执行 Full Swap；Direct app sandbox transport 在类重定义成功后执行独立 Activity relaunch。两者都会保留进程并让 `onCreate()` 再次执行。只有 `isNeedRestartActivity=false` 时才保持不重建 Activity 的 `APPLY_CHANGES` 语义。这里不要用最终上报的 `HOT_RELOAD` 名称推断 Activity 生命周期。
+
+部署成功后的启动目标按 launch Activity、HOME Activity 的顺序降级；两者都不存在时只执行 `am force-stop <package>` 并打印 warn，不会退化为启动任意普通 Activity，规则细节见 `03_deploy_core.md` §4.4。stop fallback 下 `DeployTaskResult` 仍为成功，但 App 不会进入前台，也不会 ready：显式 `waitAppReadyAfterSuccess`、Recover 的在线检测和 Debug attach 会按各自现有路径失败，用户可见日志中不会出现落地的 App 页面。
 
 ### 4.3 多设备汇总与 fallback
 

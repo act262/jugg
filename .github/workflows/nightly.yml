@@ -51,6 +51,9 @@ jobs:
       - name: Set up Android SDK
         if: steps.check.outputs.should_build == 'true'
         uses: android-actions/setup-android@v4
+        with:
+          # Default still includes the obsolete `tools` package, which Google no longer serves.
+          packages: platform-tools
 
       - name: Install Android build tools
         if: steps.check.outputs.should_build == 'true'

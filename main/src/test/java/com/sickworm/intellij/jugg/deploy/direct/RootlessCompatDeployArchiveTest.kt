@@ -88,7 +88,7 @@ class RootlessCompatDeployArchiveTest {
     @Test
     fun `request dir is package and request scoped`() {
         assertEquals(
-            "/data/local/tmp/jugg/rootless-compat/com.example.app/1789261483352-ab12cd34",
+            "/sdcard/Android/data/com.example.app/files/jugg/rootless-compat/1789261483352-ab12cd34",
             RootlessCompatDeployArchive.requestDir("com.example.app", "1789261483352-ab12cd34"),
         )
     }

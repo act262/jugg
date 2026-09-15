@@ -47,7 +47,7 @@
 | Jugg agent bundle | `/data/local/tmp/jugg/{AGENT_VERSION}` | 设备全局临时目录，包含 `jugg-instruments.jar`、64/32 位 so、setup script |
 | App startup agent | `{app}/code_cache/startup_agents/{version}-jugg_jvmti_agent(.so/_alt.so)` | app sandbox 内真正被系统加载的 startup agent |
 | Direct instrumentation JAR | `{app}/code_cache/startup_agents/{version}-jugg-instruments.jar` | 仅 Direct app sandbox 复制；让 app 进程可映射 instrumentation class，普通 `run-as` 路径继续使用全局 JAR |
-| Rootless compat 请求 | `/data/local/tmp/jugg/rootless-compat/{package}/{requestId}/` | Shell 可写的暂存请求：`payload.zip` + `request.properties` + 最后写入的 `ready`；由 App 在 `BootstrapApplication` 启动早期导入 |
+| Rootless compat 请求 | `/sdcard/Android/data/{package}/files/jugg/rootless-compat/{requestId}/` | Shell 可写且 App 可从 `Context.getExternalFilesDir(null)` 读取的暂存请求：`payload.zip` + `request.properties` + 最后写入的 `ready`；由 App 在 `BootstrapApplication` 启动早期导入 |
 | Rootless 导入结果 | `jugg-agent` tag 日志行 | `__JUGG_ROOTLESS_IMPORT__ OK|FAILED <requestId> [<stage> <reason>]`，Host 唯一可读回的导入终态 |
 | Apply Changes agent | `{app}/code_cache/startup_agents/{versionHash}-{dollName}` | Direct Overlay 复用的 AS startup agent；由 `AsStartupAgentPusher` 推送 |
 | `.jugg_jvmti_available` | `{app}/code_cache/.jugg_jvmti_available` | native `Agent_OnAttach` 成功取得 JVMTI/JNI 后写入；不表示所有可选 framework hook 都成功 |
@@ -128,7 +128,7 @@ DeployRetryHandler.tryRetry()
 BootstrapApplication.attachBaseContext(base)
   -> HotfixLoader.init(base)                     初始化 codeCacheDir / overlayFilesDir
   -> RootlessCompatDeployImporter.importPending(base)
-     -> 扫描 /data/local/tmp/jugg/rootless-compat/<package>/ 下带 ready 标记的请求（取最新一个）
+     -> 从 Context.getExternalFilesDir(null)/jugg/rootless-compat 扫描带 ready 标记的请求（取最新一个）
      -> app 私有文件锁串行化；拿不到锁的进程直接返回，只消费已提交 overlay
      -> 校验 protocolVersion / packageName / requestId / payload SHA-256 / expected overlay id
      -> 解压到 code_cache/rootless_import/<requestId>/（拒绝绝对路径、`..`、反斜杠和重复条目）

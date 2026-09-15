@@ -126,7 +126,7 @@ class VirtualDeployDevice(
     }
 
     fun rootlessCompatPackageDir(): File =
-        File(root, "data/local/tmp/jugg/rootless-compat/$packageName")
+        File(root, "sdcard/Android/data/$packageName/files/jugg/rootless-compat")
 
     fun stagedRootlessRequestDirs(): List<File> {
         return rootlessCompatPackageDir().listFiles()
@@ -280,6 +280,14 @@ class VirtualDeployDevice(
             cmd.startsWith("rm -rf /data/local/tmp/jugg/") -> {
                 val remote = cmd.removePrefix("rm -rf ").trim()
                 remotePushFiles.remove(remote)?.delete()
+                File(root, remote.removePrefix("/")).deleteRecursively()
+                ""
+            }
+            cmd.startsWith("rm -rf /sdcard/Android/data/") -> {
+                val remote = cmd.removePrefix("rm -rf ").trim()
+                remotePushFiles.keys
+                    .filter { it == remote || it.startsWith("$remote/") }
+                    .forEach { remotePushFiles.remove(it)?.delete() }
                 File(root, remote.removePrefix("/")).deleteRecursively()
                 ""
             }

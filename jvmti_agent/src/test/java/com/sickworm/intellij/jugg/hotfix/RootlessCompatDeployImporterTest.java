@@ -279,6 +279,18 @@ public class RootlessCompatDeployImporterTest {
         assertEquals("fresh", read(new File(overlayDir, "Removed.dex")));
     }
 
+    @Test
+    public void pendingRootDir_shouldStayInsideTheAppExternalFilesDirectory() {
+        File externalFilesDir = new File(
+                "/storage/emulated/0/Android/data/com.example.app/files"
+        );
+
+        assertEquals(
+                new File(externalFilesDir, "jugg/rootless-compat"),
+                RootlessCompatDeployImporter.pendingRootDir(externalFilesDir)
+        );
+    }
+
     private void assertUntouched() throws IOException {
         assertEquals(EXPECTED_OVERLAY_ID, read(new File(overlayDir, "id")));
         assertEquals("old", read(new File(overlayDir, "Old.dex")));

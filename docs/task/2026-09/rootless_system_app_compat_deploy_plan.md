@@ -126,7 +126,7 @@ compat retry 命中 sandbox unavailable 后，不进入现有 privileged Direct 
 OverlayUpdateBuilder
   -> DirectOverlayWriteRequestBuilder 或契约一致的最小复用
   -> 生成 package-scoped pending archive
-  -> adb push /data/local/tmp/jugg/rootless-compat/<package>/<requestId>/payload.zip
+  -> adb push /sdcard/Android/data/<package>/files/jugg/rootless-compat/<requestId>/payload.zip
   -> 写 metadata/checksum
   -> 最后写 ready 标记
 ```
@@ -300,7 +300,7 @@ OverlayUpdateBuilder
 - 执行 `./gradlew :idea:compileKotlin`。
 - 若修改 jvmti runtime/bundle，按现有约定递增 `agentVersion` 仅在 bundle 内容契约要求时进行；本方案不 push agent，不得为了版本整齐无条件递增。
 - 在真实 OPlus user ROM 上验证：
-  - App 可读取 `/data/local/tmp/jugg/rootless-compat/...`。
+  - App 可通过 `Context.getExternalFilesDir(null)` 读取 `/sdcard/Android/data/<package>/files/jugg/rootless-compat/...`。
   - 首次带 compat runtime 的完整安装后，源码和资源变化均可通过一次重启生效。
   - 无 `adb root`、无 `su`、无法 `run-as` 的条件保持不变。
 

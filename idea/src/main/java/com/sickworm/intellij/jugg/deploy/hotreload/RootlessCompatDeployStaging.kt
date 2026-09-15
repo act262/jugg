@@ -9,8 +9,8 @@ import com.sickworm.intellij.jugg.deploy.run.JuggOverlayId
 import java.io.File
 
 /**
- * A compat request staged under `/data/local/tmp/jugg/rootless-compat` for the app to import on its
- * next start. Deploy state must not advance until the app confirms the import result.
+ * A compat request staged under the app external files directory for the app to import on its next
+ * start. Deploy state must not advance until the app confirms the import result.
  */
 data class RootlessCompatPending(
     val packageName: String,
@@ -52,10 +52,10 @@ class RootlessCompatDeployStaging(
         pushBytes(metadata.toByteArray(), "$requestDir/${RootlessCompatDeployArchive.REQUEST_FILE_NAME}")
         // The ready marker is written last so a half staged request is never picked up by the app.
         pushBytes(ByteArray(0), "$requestDir/${RootlessCompatDeployArchive.READY_FILE_NAME}")
-        // The app runs as another uid, so every path the importer reads must stay world readable.
+        // Files written through adb keep the shell uid, so the nested request paths must stay
+        // readable by the app process after scoped-storage path checks allow its own package.
         adb.execAdbShellCmd(
-            "chmod 755 /data/local/tmp/jugg ${RootlessCompatDeployArchive.ROOT_DIR} " +
-                    "${RootlessCompatDeployArchive.ROOT_DIR}/$packageName $requestDir && " +
+            "chmod 755 ${RootlessCompatDeployArchive.packageRootDir(packageName)} $requestDir && " +
                     "chmod 644 $requestDir/*",
         )
         logger.debug("Rootless compat request staged: requestId=$requestId, files=${request.files.size}")

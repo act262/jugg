@@ -14,7 +14,7 @@ import java.util.zip.ZipOutputStream
  * package- and request-scoped request for the app to import during its next startup instead:
  *
  * ```
- * /data/local/tmp/jugg/rootless-compat/<package>/<requestId>/
+ * /sdcard/Android/data/<package>/files/jugg/rootless-compat/<requestId>/
  *     payload.zip          overlay files, same entry paths as a Direct Overlay request
  *     request.properties   deterministic key=value metadata, written before the ready marker
  *     ready                written last; the app only imports a request carrying this marker
@@ -26,7 +26,8 @@ import java.util.zip.ZipOutputStream
 object RootlessCompatDeployArchive {
 
     const val PROTOCOL_VERSION = 1
-    const val ROOT_DIR = "/data/local/tmp/jugg/rootless-compat"
+    private const val EXTERNAL_APP_DATA_ROOT = "/sdcard/Android/data"
+    private const val ROOT_DIR_NAME = "jugg/rootless-compat"
     const val PAYLOAD_FILE_NAME = "payload.zip"
     const val REQUEST_FILE_NAME = "request.properties"
     const val READY_FILE_NAME = "ready"
@@ -53,7 +54,12 @@ object RootlessCompatDeployArchive {
     }
 
     fun requestDir(packageName: String, requestId: String): String {
-        return "$ROOT_DIR/$packageName/$requestId"
+        return "${packageRootDir(packageName)}/$requestId"
+    }
+
+    /** Shell-visible path that maps to the app's `Context.getExternalFilesDir(null)` directory. */
+    fun packageRootDir(packageName: String): String {
+        return "$EXTERNAL_APP_DATA_ROOT/$packageName/files/$ROOT_DIR_NAME"
     }
 
     /**

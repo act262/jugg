@@ -249,7 +249,7 @@ class DirectAppSandboxDeployTransportTest {
                     adb.pushedPaths.toString(),
                     adb.pushedPaths.all {
                         it.startsWith(
-                            "/data/local/tmp/jugg/rootless-compat/com.example.app/${pending.requestId}/",
+                            "/sdcard/Android/data/com.example.app/files/jugg/rootless-compat/${pending.requestId}/",
                         )
                     },
                 )

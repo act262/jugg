@@ -27,7 +27,7 @@ import java.util.zip.ZipInputStream;
 
 /**
  * Imports a rootless compat payload staged by the host under
- * {@code /data/local/tmp/jugg/rootless-compat/<package>/<requestId>}.
+ * {@code <external-files>/jugg/rootless-compat/<requestId>}.
  *
  * The host cannot write {@code code_cache/.overlay} itself when ordinary shell, adb root and su are
  * all unavailable, so it only stages the payload and restarts the app. This importer runs from
@@ -45,7 +45,7 @@ public final class RootlessCompatDeployImporter {
 
     private static final String TAG = HotfixLoader.TAG + "#RootlessImport";
     private static final String RESULT_MARKER = "__JUGG_ROOTLESS_IMPORT__";
-    private static final String ROOT_DIR = "/data/local/tmp/jugg/rootless-compat";
+    private static final String ROOT_DIR_NAME = "jugg/rootless-compat";
     private static final String PROTOCOL_VERSION = "1";
     private static final String PAYLOAD_FILE_NAME = "payload.zip";
     private static final String REQUEST_FILE_NAME = "request.properties";
@@ -83,11 +83,24 @@ public final class RootlessCompatDeployImporter {
         } catch (Throwable e) {
             return;
         }
-        File requestDir = findPendingRequest(new File(ROOT_DIR, packageName));
+        File externalFilesDir;
+        try {
+            externalFilesDir = base.getExternalFilesDir(null);
+        } catch (Throwable e) {
+            return;
+        }
+        if (externalFilesDir == null) {
+            return;
+        }
+        File requestDir = findPendingRequest(pendingRootDir(externalFilesDir));
         if (requestDir == null) {
             return;
         }
         importRequest(packageName, requestDir);
+    }
+
+    static File pendingRootDir(File externalFilesDir) {
+        return new File(externalFilesDir, ROOT_DIR_NAME);
     }
 
     /** Imports one staged request directory; failures are reported instead of propagated. */

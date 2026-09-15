@@ -26,6 +26,7 @@ Jugg can update already generated native library / `.so` files. For C/C++ module
 | Delete an `.so` | Does not produce a removal result | The installed APK continues containing the old native library |
 | Change `CMakeLists.txt`, project `*.cmake`, `Android.mk`, or `Application.mk` | Supported | Runs the native task for the current variant and updates that module's external build information before the same Gradle invocation finishes; new `.so` files update the APK through the existing flow |
 | Change NDK, ABI, native source sets, or packaging rules | Not treated as a source incremental input | Uses a complete Gradle build to refresh the project model and APK baseline |
+| Change `packaging.jniLibs.keepDebugSymbols` | Supported | Keeps debug symbols for those `.so` files according to the app packaging semantics without running the app native build or strip task |
 
 ## Trigger and result
 
@@ -33,7 +34,7 @@ Jugg can update already generated native library / `.so` files. For C/C++ module
 C/C++ source changes
   -> Find every Native module that shares the source
   -> Run all distinct native Gradle tasks for the current variant in one invocation
-  -> Collect new .so files from each module's intermediate output directory
+  -> Read the APK owner strip configuration and produce stripped .so files in this invocation directory
 
 Flutter Dart source changes
   -> Run the Flutter native output task for the current variant
@@ -63,6 +64,7 @@ Profile/Release use the AOT artifact `libapp.so`, which is a native library and 
 - The direct file-change entry point recognizes only existing `.so` files under the project directory whose parent directory is `armeabi`, `armeabi-v7a`, `arm64-v8a`, `x86`, or `x86_64`.
 - The C/C++ source entry requires Android Gradle configuration with a CMake or ndk-build file and a discoverable native task for the current variant. Jugg does not watch generated files under `.cxx`, `.externalNativeBuild`, or Gradle `build` directories.
 - Each detected C/C++ source change runs the native task. Artifact content checks only avoid writing identical output back to the APK; they do not skip native compilation.
+- What gets deployed is the `.so` stripped with the app packaging semantics, not the unstripped file in the module intermediate directory. Jugg reads the `strip<Variant>DebugSymbols` configuration of the APK owner (base app or dynamic feature) inside the collector process and reproduces the AGP single-file strip behavior without executing that task or pulling the app `merge<Variant>NativeLibs` into this invocation's task graph. When the strip tool is missing or returns a non-zero exit code, the library is packaged as is, following the AGP contract; if the resulting file still exceeds the deploy data limit, the round fails explicitly instead of hiding the limit behind a larger IDE heap.
 - When one physical source matches multiple Native modules, every matching task must be supported and succeed, and every module output must be collectable. Otherwise that source falls back or fails as a whole instead of marking a partially successful result as compiled.
 - Each detected Dart source change runs the Flutter native output task for the current variant. Jugg reads only the native output that task declares and resolves the `.so` files under each ABI from it, whichever form that output takes. It does not recursively guess native output from Flutter intermediate directories, and it does not assemble artifact locations from fixed paths.
 - If Jugg recognizes a Flutter source root but cannot find the compile task, the assets output directory, or native output metadata, it falls back to a full Gradle build. If the native output cannot be read, or an archive contains unsafe or duplicate native entries, the current compilation fails. A build mode that legitimately produces no native library, such as Debug, succeeds as long as the assets output is valid.

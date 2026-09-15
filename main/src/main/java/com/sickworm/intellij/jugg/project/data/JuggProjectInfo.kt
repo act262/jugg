@@ -81,6 +81,12 @@ data class ExternalBuildInfoRequestItem(
     val buildVariant: String,
     val taskPath: String,
     val type: ExternalBuildType,
+    /**
+     * APK owner module (base app or dynamic feature) whose `strip<Variant>DebugSymbols` configuration
+     * describes how this C++ output is packaged. Required for C++ items, always null for Flutter.
+     */
+    val apkOwnerModuleRootDir: File? = null,
+    val apkOwnerBuildVariant: String? = null,
 )
 
 /** Invocation-scoped request consumed by the Gradle init script collector. */
@@ -96,6 +102,12 @@ data class ExternalBuildInfoUpdate(
     val buildVariant: String,
     val previousTaskPath: String,
     val externalBuildInfo: ExternalBuildInfo,
+    /**
+     * Invocation-scoped directory holding the stripped `<abi>` native libraries of a C++ build, written
+     * by this collector run. It only describes the current invocation and is never persisted into
+     * [ExternalBuildInfo]; null means the round has no stripped output and must not deploy.
+     */
+    val strippedNativeOutput: File? = null,
 )
 
 /** One build-root collector result. Multiple files may form one composite-build invocation. */

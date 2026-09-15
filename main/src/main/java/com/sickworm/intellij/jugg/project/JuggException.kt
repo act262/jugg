@@ -105,6 +105,10 @@ class JuggInternalException private constructor(msg: String): Exception(msg) {
         fun outputDidNotSpecificApkPath(output: String) =
             JuggInternalException("Output did not specific apk path: $output")
 
+        fun outputTooLargeToDeploy(file: File, size: Long) =
+            JuggInternalException("Deploy output ${file.absolutePath} is $size bytes, exceeding the " +
+                    "${Int.MAX_VALUE} bytes limit of the deploy data. Run a normal Gradle install to deploy it.")
+
         fun methodNotImplemented(method: String) =
             JuggInternalException("Method not implemented: $method")
     }

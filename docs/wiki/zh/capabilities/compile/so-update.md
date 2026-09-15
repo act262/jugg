@@ -26,6 +26,7 @@ Jugg 支持更新已产出的 native lib / `.so` 文件。对于 Gradle 管理�
 | 删除 `.so` | 不生成移除结果 | 已安装 APK 继续包含原有 native lib |
 | 修改 `CMakeLists.txt`、项目内 `*.cmake`、`Android.mk`、`Application.mk` | 支持 | 执行当前变体的 native task，并在同一 Gradle invocation 结束前定向更新该模块的外部构建信息；新 `.so` 按既有流程更新 APK |
 | 修改 NDK、ABI、native source set 或 packaging 规则 | 不作为源码增量输入 | 通过完整 Gradle 构建刷新项目模型和 APK 基线 |
+| 修改 `packaging.jniLibs.keepDebugSymbols` | 支持 | 按 app 打包语义保留这些 `.so` 的调试符号，不执行 app 的 native 构建或 strip 任务 |
 
 ## 触发与结果
 
@@ -33,7 +34,7 @@ Jugg 支持更新已产出的 native lib / `.so` 文件。对于 Gradle 管理�
 C/C++ 源码变化
   -> 找到所有共享该源码的 Native 模块
   -> 一次执行当前变体的全部去重 native Gradle task
-  -> 从各模块的中间产物目录收集新 .so
+  -> 读取 APK owner 的 strip 配置，在本轮 invocation 目录内按 app 打包语义产出 stripped .so
 
 Flutter Dart 源码变化
   -> 执行当前变体的 Flutter native 输出 task
@@ -63,6 +64,7 @@ Profile/Release 使用 AOT 产物 `libapp.so`，属于 native lib，继续按上
 - 直接文件变化入口只识别项目目录中已经存在、父目录为 `armeabi`、`armeabi-v7a`、`arm64-v8a`、`x86` 或 `x86_64` 的 `.so`。
 - C/C++ 源码入口要求 Android Gradle 配置提供 CMake 或 ndk-build 文件，并能够找到当前变体的 native task。Jugg 不监听 `.cxx`、`.externalNativeBuild` 或 Gradle `build` 目录中的生成文件。
 - 每次检测到 C/C++ 源码变化都会执行 native task；产物内容校验只避免重复写入 APK，不跳过 native 编译。
+- 部署的是按 app 打包语义 strip 过的 `.so`，而不是 module 中间产物目录里的未 strip 文件。Jugg 在 collector 进程内读取 APK owner（base app 或 dynamic feature）的 `strip<Variant>DebugSymbols` 配置并复现 AGP 的单文件 strip 行为，不执行该任务、也不把 app 的 `merge<Variant>NativeLibs` 带入本轮任务图。strip 工具缺失或返回非 0 时按 AGP 语义原样打包该文件；保留下来的文件仍超过部署数据上限时本轮明确失败，不用提高 IDE 堆内存掩盖。
 - 同一个物理 source 匹配多个 Native 模块时，所有匹配 task 必须全部支持并执行成功，各模块输出也必须全部可收集；否则该 source 整体回退或失败，不会把部分成功结果标记为已编译。
 - 每次检测到 Dart 源码变化都会执行当前变体的 Flutter native 输出 task。Jugg 只读取该 task 自己声明的 native 输出，并按它是归档还是目录解析出 ABI 下的 `.so`；不从 Flutter 中间目录递归猜测 native 输出，也不按固定路径拼接产物位置。
 - 已识别 Flutter 源码根但缺少 compile task、assets 输出目录或 native 输出元数据时，Jugg 会回退完整 Gradle 构建；native 输出无法读取，或归档中出现不安全、重复的 native 条目时，本轮编译失败。Debug 等本身不产出 native lib 的构建模式只要 assets 输出有效就算成功。

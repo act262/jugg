@@ -239,6 +239,58 @@ class JuggRunSettingsComponentTest {
     }
 
     @Test
+    fun `custom APK sign script panel should only show when enabled`() {
+        TestGlobal.init()
+        val component = JuggRunSettingsComponent()
+        val checkbox = descendants(component).filterIsInstance<JCheckBox>()
+            .single { it.text == "Enable custom APK sign script" }
+        val scriptPanel = descendants(component).filterIsInstance<JPanel>()
+            .single { (it.border as? TitledBorder)?.title == "Custom APK Sign Script" }
+        val compileCommandTextField = readPrivateField<JTextField>(component, "compileCommandTextField")
+        val scriptTextField = descendants(scriptPanel).filterIsInstance<JBTextField>().single()
+
+        assertFalse(checkbox.isSelected)
+        assertFalse(scriptPanel.isVisible)
+        assertEquals(compileCommandTextField.preferredSize.height, scriptTextField.preferredSize.height)
+        assertEquals("e.g. ./scripts/sign-system-apk.sh", scriptTextField.emptyText.text)
+
+        checkbox.doClick()
+        scriptTextField.text = "./scripts/sign-system-apk.sh"
+        val options = JuggRunConfigurationOptions()
+        component.updateJuggRunConfigurationOptions(options)
+
+        assertTrue(scriptPanel.isVisible)
+        assertTrue(options.enableCustomApkSignScript)
+        assertEquals(scriptTextField.text, options.customApkSignScript)
+    }
+
+    @Test
+    fun `custom APK sign script should round trip through run configuration state`() {
+        TestGlobal.init()
+        val component = JuggRunSettingsComponent()
+        component.updateUi(JuggRunConfigurationOptions().apply {
+            enableCustomApkSignScript = true
+            customApkSignScript = "./scripts/sign-system-apk.sh --server production"
+        }, "jugg:test")
+
+        val checkbox = descendants(component).filterIsInstance<JCheckBox>()
+            .single { it.text == "Enable custom APK sign script" }
+        val scriptPanel = descendants(component).filterIsInstance<JPanel>()
+            .single { (it.border as? TitledBorder)?.title == "Custom APK Sign Script" }
+        val scriptTextField = descendants(scriptPanel).filterIsInstance<JBTextField>().single()
+
+        assertTrue(checkbox.isSelected)
+        assertTrue(scriptPanel.isVisible)
+        assertEquals("./scripts/sign-system-apk.sh --server production", scriptTextField.text)
+
+        val options = JuggRunConfigurationOptions()
+        component.updateJuggRunConfigurationOptions(options)
+
+        assertTrue(options.enableCustomApkSignScript)
+        assertEquals("./scripts/sign-system-apk.sh --server production", options.customApkSignScript)
+    }
+
+    @Test
     fun `control panel should not expose global compat deploy setting`() {
         TestGlobal.init()
         val panel = createPanel()

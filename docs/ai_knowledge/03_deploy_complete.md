@@ -21,6 +21,7 @@
 | `JuggCompileHelper` | `idea/src/main/java/com/sickworm/intellij/jugg/compiler/JuggCompileHelper.kt` | 产出 `CompileTaskResult`，决定本轮是增量编译还是 Gradle 编译。 |
 | `JuggDeployerHelper` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeployerHelper.kt` | 单设备部署入口。根据 `isInstall` 进入 install、embedded 或 incremental deploy。 |
 | `LaunchContext.customApkInstallScript` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/LaunchContext.kt` | 当前 Run Configuration 的可选安装脚本；经 `DeployOptions`、deploy/recover 请求与 `LaunchContextFactory` 注入，UI handler 只负责交互。 |
+| `DeployOptions.customApkSignScript` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeployHelperBean.kt` | 当前 Run Configuration 的可选 APK 签名脚本；只传到 `IncrementalDeployHelper.updateApk()` 的 APK 更新边界，不进入 `LaunchContext`、`DeployStateRecover` 或 installer。 |
 | `DeployOptions` / `DeployTaskResult` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeployHelperBean.kt` | Run 编排与 deploy helper 之间的请求/结果契约。 |
 | `JuggDeployData` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeployData.kt` | 部署 payload 与最终 deploy type 来源。 |
 | `DeployStateManager` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/DeployStateManager.kt` | 单设备当前是否可增量部署、是否需要 recover 的状态来源。 |
@@ -103,6 +104,7 @@ selected and running devices snapshot
 - 多设备只在最后一台成功部署后推进部分全局状态；部署核心细节见 `03_deploy_core.md`。
 - Run 层拿到的是 `DeployTaskResult.isCanFallback`，具体哪些失败可 fallback 由 `DeployRetryHandler` / deploy core 决定。
 - 自定义 APK 安装脚本属于 Run Configuration，经部署请求传入 `LaunchContext`，覆盖当前 Run 的普通 App install/reinstall；远程编译只改变产物来源，脚本仍在连接设备的本地 IDE 主机执行。
+- 自定义 APK 签名脚本同样属于 Run Configuration，但只替换 Jugg 对增量改写 APK 的重新签名步骤：Gradle 完整构建产物的签名流程不变，CLI `BuildIncrementalApkCommand` 和手工导出增量 APK 也不接受该参数。启用脚本时 `Run Configuration` 校验要求脚本非空，且本地 `SigningConfig` 无效不再是 APK 更新的失败条件；脚本失败后不回退到本地 keystore 签名。
 - `juggServer.report(action="compile"/"deploy")` 是观测侧上报；不要把上报成功当作编译或部署成功。
 
 ---

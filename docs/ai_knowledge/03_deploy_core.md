@@ -27,6 +27,8 @@
 | `JuggDeployTask` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/applychanges/JuggDeployTask.kt` | 单设备单轮 deploy task。按 `applicationId` 分组，把全量 `JuggDeployData` 裁成 APK-scoped data 后调用 `JuggDeployer`。 |
 | `JuggDeployer` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/applychanges/JuggDeployer.kt` | 封装 Android Studio deployer：install、code swap、full swap、deployment cache、overlay id、Direct Overlay transport。 |
 | `CustomApkInstallScriptRunner` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/applychanges/CustomApkInstallScriptRunner.kt` | 在本地工程根目录执行当前 Run Configuration 的自定义普通 App APK 安装脚本，转发输出、响应取消并校验包与 APK checksum。 |
+| `CustomApkSignScriptRunner` | `main/src/main/java/com/sickworm/intellij/jugg/apk/CustomApkSignScriptRunner.kt` | 在本地工程根目录执行当前 Run Configuration 的自定义 APK 签名脚本，把待签名临时 APK 的绝对路径作为最后一个位置参数传入，转发输出并响应取消。 |
+| `ApkFileModifier` | `main/src/main/java/com/sickworm/intellij/jugg/apk/ApkFileModifier.kt` | 在 APK 同目录临时副本上插入文件、zipalign、签名、`apksigner verify`，全部成功后才原子替换原 APK。 |
 | `DeployFileManager` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/DeployFileManager.kt` | 部署文件 facade。维护 changed/compiled/staging/deployed 状态，生成 `JuggDeployData`，reinstall 后 reset。 |
 | `DeployDataPlanner` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/DeployDataPlanner.kt` | 从 staging + history 规划部署数据，处理 dex merge 与 compat deploy 组装。 |
 | `JuggDeployData` / `DeployItem` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/run/JuggDeployData.kt` | 最终下发设备的部署数据模型，包含 deploy type、APK 归属、restart 判断、split/filter，以及本轮 Flutter JIT runtime 变化（`flutterJitRuntimeFiles`）。 |
@@ -133,6 +135,24 @@ JuggDeployerHelper.deploy(isInstall=false)
   -> JuggDeployer.codeSwap() / fullSwap()
   -> updateInfoAfterIncDeploy()
 ```
+
+APK 更新统一走 `IncrementalDeployHelper.updateApk()`：`JuggDeployerHelper` 在普通 APK 更新和 Embedded APK 更新两处调用，并把 `DeployOptions.customApkSignScript` 与当前 `CompileUiHandler` 传入。`updateApk()` 只在未配置自定义脚本时才要求 `context.signingConfig` 有效；配置了脚本时本地 keystore 缺失不构成失败。
+
+```text
+IncrementalDeployHelper.updateApk(apkInfos, deployItems, customApkSignScript, compileUiHandler)
+  -> 每个 APK 独立处理
+  -> ApkFileModifier.insertAndResign()
+      -> updateFiles()（插入 Manifest / dex / native library 等）
+      -> alignApk()
+      -> 配置了脚本: CustomApkSignScriptRunner.run(alignedApk)
+           -> <configured command> '<aligned apk 绝对路径>'
+           -> 脚本必须原地覆盖该 APK
+        未配置脚本: resignApk()（本地 keystore）
+      -> verifyApk()（apksigner verify，两种路径共用）
+      -> replaceOldApk()（原子替换，失败时保留原 APK）
+```
+
+自定义脚本非零退出、被取消、`apksigner verify` 失败或临时文件异常时，本次 APK 更新失败且不进入安装，原 APK 保持不变；同一次更新绝不回退到本地 keystore 签名，避免产生签名身份错误的 APK。部署 retry 沿用 `retryReason != null` 的 `isRetry` 判断跳过再次改写和签名，recover/reinstall 安装的也是已经签好的 APK，因此签名脚本不进入 `LaunchContext`、`DeployStateRecover` 或 installer。多设备 Run 可能对同一 APK 重复执行脚本，首版不做跨设备签名缓存。
 
 `updateInfoAfterIncDeploy()` 顺序不能乱：先更新 deploy history，再 `DeployFileManager.commit(deployData)`，最后写 `lastDeployOverlayIds`。这个顺序保证文件历史和 overlay checkpoint 一起前进。
 

@@ -32,7 +32,7 @@
 | MCP 工具 | `McpToolActionRegistry`, `CompileJobManager`, `GetCompileStatusMcpToolAction`, `LayoutDumpHelper`, `LayoutHtmlConverter`, `WaitLogsMcpToolAction`, `CrashDetector`, `LastDeployTimestampRegistry` | `ai/mcp/actions`, `ai/mcp/util` | 工具注册、异步编译状态管理；`LayoutDumpHelper` 封装 layout_dump 核心逻辑（设备解析、px→dp、公开 HTML 输出、内部 JSON 文件），`LayoutHtmlConverter` 将 JSON 视图树转为精简 HTML（含虚拟节点裁剪）；`WaitLogsMcpToolAction` 阻塞式等待 App 日志（marker/crash/timeout 判停）；`CrashDetector` 复用 crash 信号识别；`LastDeployTimestampRegistry` 记录 deploy/restart 时刻作为日志起点 | 稳定 | 2026-08-02 |
 | AI 技能安装 | `JuggSkillInstaller`, `JuggHookInstaller`, `CcSwitchCommonConfigGuideExporter`, `PythonRuntimeResolver`, `CodexPermissionRuleInstaller`, `JuggCliAutoUpdater`, `ClientSetupDocExporter`, `IAgentInstaller`, `agents/*` | `ai/skills` | 安装/更新 `jugg-android-dev-loop` skill、CLI 与 hooks（资源来源 `docs/skills/*.zip`）；`JuggCliAutoUpdater` 比较 bundled `SKILL.md` version 与 `~/.jugg/skills/jugg-android-dev-loop/SKILL.md`，更高才覆盖 `~/.jugg/bin` 和已安装 skill；改 CLI/skill 必须同时递增 `CLI_VERSION` 与 `SKILL.md` version。hooks 安装校验 Python 3.7+（`python3` 优先、`python` 回退）；Windows CLI wrapper 运行时再按 `python3`、`python`、`py -3` 验证并选择解释器；成功安装 Claude hooks 后，安装结果关闭再异步检查桌面版 / `cc-switch-cli` 共用的配置目录，用户确认后仅导出 Jugg Claude hooks 至 `~/.jugg/cc-switch` 并打开文件，不读写 CC Switch provider 或数据库；Windows CLI 安装由 `JuggSkillInstaller` 写入用户级 PATH，macOS/Linux 创建 `~/.local/bin/jugg` symlink；Codex skill 安装时同步写入 `rules/default.rules` 的 Jugg CLI `prefix_rule`，并导出 `agent_setup.md`；`IAgentInstaller` 统一描述各 agent 的 skill/hook/rules 安装目标，Installer 仅保留调度 | 稳定 | 2026-09-04 |
 | MCP ViewHierarchy 通信 | `ViewHierarchyClient`, `ViewHierarchyRequest`, `ViewHierarchyResponse` | `ai/mcp/viewhierarchy` | `layout-dump` / `tap` 元素模式 / `view-inspect` 的 App 内 LocalSocket 通道（Server-only，无 uiautomator 回退） | 稳定 | 2026-03-09 |
-| 工具模块 | `Aapt2DaemonInvoker`, `ApkFileModifier`, `GitManager`, `JuggLogger`, `JuggServer`, `JuggEventLocalStore`, `IssueReportBundleBuilder`, `IssueReportUploader`, `ExpiredArtifactCleaner`, `PlatformApi` | `aapt2/`, `apk/`, `git/`, `logger/`, `server/`, `diagnostics/`, `project/`, `platform/` | 通用基础能力；report 事件写入 `~/.jugg/action.db`，问题诊断使用白名单包和独立单目标上传；MCP 与问题诊断临时产物分别保留 30 天和 7 天 | 稳定 | 2026-08-02 |
+| 工具模块 | `Aapt2DaemonInvoker`, `ApkFileModifier`, `CustomApkSignScriptRunner`, `GitManager`, `JuggLogger`, `JuggServer`, `JuggEventLocalStore`, `IssueReportBundleBuilder`, `IssueReportUploader`, `ExpiredArtifactCleaner`, `PlatformApi` | `aapt2/`, `apk/`, `git/`, `logger/`, `server/`, `diagnostics/`, `project/`, `platform/` | 通用基础能力；`ApkFileModifier` 在同目录临时副本上插入、对齐、签名、校验后原子替换，`CustomApkSignScriptRunner` 可按 Run Configuration 用项目脚本替换默认 keystore 签名；report 事件写入 `~/.jugg/action.db`，问题诊断使用白名单包和独立单目标上传；MCP 与问题诊断临时产物分别保留 30 天和 7 天 | 稳定 | 2026-09-15 |
 
 ---
 
@@ -86,6 +86,7 @@
 - 查“编译为何回退”：从 `JuggCompilerHelper` -> `preprocessIncrementalCompile`。
 - 查“部署失败恢复”：从 `JuggDeployerHelper.deploy` -> `DeployStateRecover.recoverDeployState`。
 - 查“系统应用能否用 Jugg / adb install 安装”：`03_deploy_system_app.md`。默认 installer 不负责系统分区，自定义 APK 安装脚本可接管普通 App 的 install/reinstall。
+- 查“APK 改写后为什么签名失败 / 如何换成服务器签名”：`03_deploy_system_app.md` §4.2、`05_utilities.md`。自定义 APK 签名脚本替换 `ApkFileModifier` 的默认 keystore 签名，失败不回退本地签名。
 - 查“MCP 参数规则”：从 tool action 的 `inputSchema` 和 `execute` 实现确认。
 
 ---

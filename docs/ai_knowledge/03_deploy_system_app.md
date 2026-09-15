@@ -13,7 +13,7 @@
 
 不展开 Jugg install / overlay 的一般机制，见 `03_deploy_core.md`。
 
-Jugg **没有内置**把普通 APK 首次安装成系统应用的 installer、`priv-app` push 或权限白名单逻辑。Run Configuration 可启用 `Enable custom APK install script`，让项目自己的 Gradle task 或脚本接管普通 App 的 install/reinstall；系统分区写入、白名单、签名和重启仍完全由该脚本负责。已经安装的 debuggable 应用如果不满足 Android Studio Deployer 的 `run-as`、普通 UID 与 SELinux label 前提，但 shell、root adbd 或非交互 `su` 能完整访问其 data 目录，class、资源和 assets 增量部署可走 Jugg Direct transport。
+Jugg **没有内置**把普通 APK 首次安装成系统应用的 installer、`priv-app` push 或权限白名单逻辑。Run Configuration 可启用 `Enable custom APK install script`，让项目自己的 Gradle task 或脚本接管普通 App 的 install/reinstall；系统分区写入、白名单和重启仍完全由该脚本负责。需要平台签名或服务器签名时，另用 `Enable custom APK sign script` 替换 Jugg 增量改写 APK 后的默认本地 keystore 签名；两个脚本相互独立，安装脚本不因为启用了签名脚本而改变职责。已经安装的 debuggable 应用如果不满足 Android Studio Deployer 的 `run-as`、普通 UID 与 SELinux label 前提，但 shell、root adbd 或非交互 `su` 能完整访问其 data 目录，class、资源和 assets 增量部署可走 Jugg Direct transport。
 
 ## 2. 核心源码索引
 
@@ -21,6 +21,7 @@ Jugg **没有内置**把普通 APK 首次安装成系统应用的 installer、`p
 |---|---|---|
 | `JuggDeployer.install()` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/applychanges/JuggDeployer.kt` | 统一安装入口。普通 App 可选择自定义脚本，否则调用 Android Studio deployer；成功后统一写 deployment cache 与 overlay id。 |
 | `CustomApkInstallScriptRunner` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/run/applychanges/CustomApkInstallScriptRunner.kt` | 在本地工程根目录执行用户脚本，补齐 Android SDK platform-tools 路径，并在脚本后校验已安装 APK。 |
+| `CustomApkSignScriptRunner` | `main/src/main/java/com/sickworm/intellij/jugg/apk/CustomApkSignScriptRunner.kt` | 在本地工程根目录执行用户签名脚本，把待签名临时 APK 绝对路径作为最后一个位置参数传入，用于平台签名或服务器签名。 |
 | `IAsDeployerCompat.install()` | `deploy_compat/*/AsDeployerCompat.kt` | 实际执行 AS install session。失败文案来自 PackageManager，不能据此推断“已经按系统应用安装”。 |
 | `AppSandboxExecutor` | `main/src/main/java/com/sickworm/intellij/jugg/deploy/AppSandboxExecutor.kt` | app 私有目录统一入口。以唯一成功标记、UID 范围和探针 SELinux context 判断 Apply Changes 兼容性；不兼容时依次探测普通 shell、root adbd 和非交互 `su`，并固定本轮使用的真实 `dataDir` 与权限模式。 |
 | `DirectAppSandboxDeployTransport` | `idea/src/main/java/com/sickworm/intellij/jugg/deploy/hotreload/DirectAppSandboxDeployTransport.kt` | 在 AS deployer 前接管 `run-as` 不兼容应用的 class、资源和 assets 增量部署：先写 Direct Overlay，新增 class 追加 in-memory dex elements，纯方法体尝试在线 redefine；Android 11+ 的普通资源及混合变化刷新运行中 Resources，并按 deploy mode 重建 Activity，失败时请求重启应用。 |
@@ -79,6 +80,7 @@ Jugg 部署
   -> JuggDeployer.install / codeSwap / fullSwap
   -> 启用自定义安装脚本且目标是普通 App APK: 项目脚本执行系统化或厂商安装流程
   -> 否则 AS deployer: pm install 到 /data/app
+  -> 增量阶段: Manifest / native library 等写回 APK 时，启用自定义签名脚本则由项目脚本签名，否则用本地 keystore
   -> 增量阶段: Direct Overlay / Apply Changes
   -> 系统应用结论仍必须由 dumpsys 的 codePath / flags / privateFlags 证明
 ```
@@ -89,7 +91,7 @@ Jugg 部署
 
 系统包已经存在后，Android 允许 `pm install` 作为更新并保留原 `FLAG_SYSTEM`。这条路径要求**新 APK 与 `/system` 里那份基线 APK 签名一致**。Android Studio / Jugg 默认 debug keystore 与 platform 签名不同，会得到 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，看起来像“无法 update”。处理是让 debug/release 都使用首次 push 时的同一套 platform 密钥，而不是 uninstall 后改用 debug 包重装（系统分区 APK 卸不掉）。
 
-Jugg 默认 install 走同一条 AS installer，签名对齐后**预期**可以更新已有系统包。启用自定义安装脚本后，Gradle install、APK 更新和 recover reinstall 都可重新执行项目脚本；脚本必须安装 Jugg 本轮提供的 APK，否则 checksum 校验失败。校验成功后，Jugg 会在 app sandbox 可用时清理旧 `code_cache/.overlay`，再记录新 base deployment cache，避免系统应用重装保留 app data 后反复出现 overlay state mismatch。class、资源和 assets 可进入 Direct app sandbox transport；Manifest/native library 继续由既有 APK 更新、重签和安装流程处理，随后重放 overlay。
+Jugg 默认 install 走同一条 AS installer，签名对齐后**预期**可以更新已有系统包。平台签名与 debug keystore 不一致时，可启用自定义 APK 签名脚本，让项目脚本在 Jugg 写回 Manifest/native library 后按平台证书重新签名，再进入安装。启用自定义安装脚本后，Gradle install、APK 更新和 recover reinstall 都可重新执行项目脚本；脚本必须安装 Jugg 本轮提供的 APK，否则 checksum 校验失败。校验成功后，Jugg 会在 app sandbox 可用时清理旧 `code_cache/.overlay`，再记录新 base deployment cache，避免系统应用重装保留 app data 后反复出现 overlay state mismatch。class、资源和 assets 可进入 Direct app sandbox transport；Manifest/native library 继续由既有 APK 更新、签名和安装流程处理，随后重放 overlay。
 
 ### 4.1 自定义 APK 安装脚本契约
 
@@ -101,7 +103,22 @@ Jugg 默认 install 走同一条 AS installer，签名对齐后**预期**可以�
 - 脚本触发 reboot 时应自行等待设备启动和 PackageManager 扫描完成后再退出；Jugg 只复用现有短暂 ADB offline 恢复窗口。
 - 退出码非零、用户取消、ADB 未恢复、包不存在或实际 APK checksum 不匹配时失败。脚本自身失败不可 deploy retry 或 Gradle fallback；脚本成功后的其它部署失败沿用原有 retry/fallback 策略，可能重新执行脚本，重复执行的处理由业务方负责。
 
-### 4.2 run-as 不兼容应用增量链路
+### 4.2 自定义 APK 签名脚本契约
+
+平台证书与 Gradle `SigningConfig` 不一致时，Jugg 改写 Manifest/native library 后按默认 keystore 重签会得到 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。Run Configuration 可启用 `Enable custom APK sign script`，用项目脚本替换这一步签名，典型用法是把 APK 发送到签名服务器。
+
+- UI 开关未启用时仅显示 switch，默认签名行为不变；启用后显示单行高度的输入面板和项目脚本示例占位提示。
+- 脚本在本地工程根目录执行，macOS/Linux 使用 Bash，Windows 使用 `cmd.exe`；远程编译产物在本地 IDE 主机完成改写，脚本也在该主机执行。Bash 不加载用户 shell 启动文件。
+- Jugg 把 zipalign 后的临时 APK **绝对路径**作为最后一个位置参数传入，并按宿主 shell 规则安全转义；路径含空格、括号或 Unicode 时仍是单个参数。Jugg 不注入设备、applicationId 或其它变量。
+- 脚本必须原地覆盖传入的临时 APK；签名服务返回到其它文件时，脚本需在退出前自行替换该路径。
+- 退出码 `0` 只表示脚本执行完成；Jugg 随后仍用 `apksigner verify` 校验，只有校验通过才原子替换原 APK。校验失败或脚本非零退出时原 APK 保持不变，且当次更新不会进入安装。
+- 不要求本地 `SigningConfig` 有效，也绝不在脚本失败后回退到本地 keystore 签名，避免产生签名身份错误的 APK。
+- 脚本输出转发到 Run 窗口，取消 Run 会终止脚本进程；不对已知失败自动重试，上传、等待、下载及其重试策略由业务脚本负责。
+- 生效范围只包括 Jugg 改写 APK 的场景：Manifest、native library、embedded dex 以及 Embedded APK 路径。Gradle 完整构建的签名流程不变，CLI `BuildIncrementalApkCommand` 与手工导出增量 APK 继续使用默认签名。
+- 部署 retry 和 recover/reinstall 安装的是已经签好的 APK，不会重复执行签名脚本；多设备 Run 可能对同一 APK 重复执行脚本，重复执行的语义由业务脚本负责。
+- 脚本内容属于敏感配置，日志与 `toSafeString()` 只输出 `(configured)` / `(not_configured)`，不得打印脚本原文。
+
+### 4.3 run-as 不兼容应用增量链路
 
 ```text
 run-as package 执行可回滚写入探测
@@ -126,7 +143,7 @@ run-as package 执行可回滚写入探测
 
 能力判断不依赖 system/privileged flag、`sharedUserId` 或具体 `run-as` 错误文本。ADB transport/offline 异常直接传播；Direct 权限不可用或 deployment cache 缺失时提前失败，不再进入必然失败的 Android Studio Deployer。Activity relaunch 也由 Direct JVMTI 请求独立完成，不重新调用 Android Studio `fullSwap/overlaySwap`，且不使用会杀进程的 `am start -S`。该路径只接管已经安装后的增量部署；首次系统化仍只能由外部流程或自定义 APK 安装脚本完成。Direct 与官方 Apply Changes 的剩余能力差异统一见 `03_deploy_core.md` §6.4。
 
-### 4.3 Rootless 兼容部署（普通 shell、root adbd、`su` 全部不可用）
+### 4.4 Rootless 兼容部署（普通 shell、root adbd、`su` 全部不可用）
 
 量产 `user` ROM（`ro.debuggable=0`）上的可调试系统应用可能同时满足：`run-as` 探测不通过、`adb root` 返回 `adbd cannot run as root in production builds`、没有可用的非交互 `su`。此时 Host 无法写入 App data 目录，`AppSandboxExecutor` 的 `mode` 固定为 `UNAVAILABLE`。
 

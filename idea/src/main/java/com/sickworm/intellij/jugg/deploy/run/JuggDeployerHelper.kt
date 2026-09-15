@@ -728,7 +728,12 @@ class JuggDeployerHelper(
             logger.info("Resigning APK...")
             TimeLogger.start("insertFileAndResignApk")
             val (isSuccess, failedReason) = IncrementalDeployHelper(compileContextManager.compileContext, logger)
-                .updateApk(deployData.apks, deployData.updateApkFiles)
+                .updateApk(
+                    deployData.apks,
+                    deployData.updateApkFiles,
+                    deployOptions.customApkSignScript,
+                    deployOptions.compileUiHandler,
+                )
             if (!isSuccess) {
                 return ChangesDeployOutcome(
                     DeployTaskResult(isSuccess = false, isCanFallback = true, costTime = costTime(), failedReason = failedReason),
@@ -942,7 +947,11 @@ class JuggDeployerHelper(
                 }
             }
         val (isSuccess, failedReason) = IncrementalDeployHelper(compileContextManager.compileContext, logger).updateApk(
-            incDeployData.apks, deployItems + deployedItems)
+            incDeployData.apks,
+            deployItems + deployedItems,
+            deployOptions.customApkSignScript,
+            deployOptions.compileUiHandler,
+        )
         logger.debug("Embedding APK finished, isSuccess: $isSuccess, failedReason: $failedReason")
         if (!isSuccess) {
             logger.warn("Embedding APK failed. Reason: $failedReason")

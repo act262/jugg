@@ -402,6 +402,9 @@ class JuggRunningTask(
                 customApkInstallScript = options.customApkInstallScript.takeIf {
                     options.enableCustomApkInstallScript
                 }.orEmpty(),
+                customApkSignScript = options.customApkSignScript.takeIf {
+                    options.enableCustomApkSignScript
+                }.orEmpty(),
                 androidTestRunSpec = androidTestRunSpec,
                 androidTestResultModel = if (androidTestRunSpec != null) androidTestResultModel else null,
             )

@@ -1,6 +1,6 @@
 # 编译系统：核心架构
 
-> 最后核对：2026-09-14
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -74,7 +74,7 @@ JuggCompilerHelper.compile(options, uiHandler)
      -> 返回 null 才进入 incrementalCompile()
   -> 增量成功：直接返回
   -> 增量失败但不可回退：提示下一次直接运行会回退，当前返回失败
-  -> 需要回退：通知 fallback，执行 gradleCompile()
+  -> 需要回退：以 info 写出 `Fallback to gradle compile. Reason: ...`，通知 fallback，执行 gradleCompile()
 ```
 
 `checkFallback()` 是 MCP/status 使用的无副作用预检，不能读取 Run options 或弹窗，因此顺序不同：`未建立 full-build 基线 -> project info 不可用 -> INVALID_DEVICE -> 其他 DeployState 必须 full compile -> 变更文件过多`。首次运行同时缺少基线和 project info 时，优先报告 `not gradle compile yet`。它不会报告 Force Gradle、BuildTarget/command 切换、依赖差异确认或无文件变化确认；status 的 reason 不能替代实际 Run 的最终决策。

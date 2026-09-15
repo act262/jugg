@@ -217,7 +217,11 @@ class JuggCompilerHelper(
 
         logger.debug("incremental compile not proceed. Will fall back to gradle compile.")
         if (!uiHandler.isForceGradleCompile) {
-            JuggRunningTask.notifyFallback(project, incrementalResult?.failedReason ?: "See log for details.")
+            JuggRunningTask.notifyFallback(
+                project,
+                incrementalResult?.failedReason ?: "See log for details.",
+                logger,
+            )
         }
 
         val gradleOptions = if (uiHandler.isGradleCacheRefreshRequested) {

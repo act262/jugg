@@ -1003,7 +1003,8 @@ class JuggCompileHelperTest {
 
     @Test
     fun compile_automaticFallback_reportsGradleModeBeforeExecution() {
-        val fixture = createFixture()
+        val logger = CapturingLogger()
+        val fixture = createFixture(logger = logger)
         whenever(fixture.pathManager.projectDir).thenReturn(temporaryFolder.root)
         whenever(fixture.options.compileCommand).thenReturn("./gradlew :app:assembleRelease")
         whenever(fixture.deployHistoryManager.getFullBuildInfo()).thenReturn(
@@ -1030,6 +1031,10 @@ class JuggCompileHelperTest {
 
         assertEquals(true, selectedMode)
         assertEquals("Compile command changed", selectedFallbackReason)
+        assertTrue(
+            "fallback reason should be printed as a user-visible info log",
+            logger.messages.contains("Fallback to gradle compile. Reason: Compile command changed"),
+        )
     }
 
     private fun prepareIncrementalCompileFailure(fixture: Fixture) {

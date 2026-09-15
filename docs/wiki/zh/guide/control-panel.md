@@ -55,6 +55,8 @@ Logs 页展示 Jugg 的结构化核心事件，可以按来源、级别、当前
 
 点击 Quick Actions、菜单/工具栏上的 Jugg 动作，或编译确认框后，Logs 页会出现对应 User Action。同一条文案也会写入 \`build/jugg/log/compile_latest.log\`，前缀固定为 \`[UserAction]\`。Overview 的 Last Deploy 时间线只显示当前运行任务，不会列出这些点击。
 
+本轮回退到 Gradle 时，Logs 会在当前任务中显示 \`Fallback to gradle compile. Reason: ...\`。同一行也会写入 Run 窗口和 \`compile_latest.log\`。
+
 结构化日志用于快速定位阶段，不替代完整日志。需要查看 Gradle 输出、异常栈或底层部署细节时，继续打开 \`build/jugg/log/compile_latest.log\`。
 
 ## Settings

@@ -1,6 +1,6 @@
 # 系统应用部署约束
 
-> 最后核对：2026-09-11
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ## 1. 文档定位
@@ -167,6 +167,8 @@ JuggDeployer.optimisticSwap
 ```
 
 App 侧由 `BootstrapApplication.attachBaseContext()` 在 `HotfixLoader.init()` 之后、`isNeedEnableHotfix()` 之前调用 `RootlessCompatDeployImporter.importPending()`，因此导入和加载发生在同一次进程启动。导入规则与 Direct Overlay 保持一致：先校验协议版本、包名、requestId、payload SHA-256 与 expected overlay id，再解压到 `code_cache/rootless_import/<requestId>/` 私有 staging，最后按 Direct Overlay 的 cleanup、full resource push 与 overlay id 规则提交，`id` 最后写入。任何校验、解压或空间失败都保留旧 overlay，并通过 `jugg-agent` tag 输出一行 `__JUGG_ROOTLESS_IMPORT__ FAILED <requestId> <stage> <reason>`。
+
+导入按 request 幂等：metadata 与 payload 摘要校验通过后，如果当前 `code_cache/.overlay/id` 已等于本 request 的 `nextOverlayId`（例如上一次启动在导入完成后、Host 读取结果前崩溃），会再次输出同一行 `__JUGG_ROOTLESS_IMPORT__ OK <requestId>` 并直接返回，不重复提交。overlay id 不是 `nextOverlayId` 时仍按状态不匹配失败，不能把任意已提交 overlay 当成本 request 的成功结果。
 
 约束：
 

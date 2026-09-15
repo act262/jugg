@@ -127,6 +127,15 @@ public final class RootlessCompatDeployImporter {
 
             stage = "overlay-state";
             File overlayDir = HotfixLoader.overlayFilesDir;
+            if (isOverlayCommitted(overlayDir, nextOverlayId)) {
+                // The app may start again before the host reads the result, for example when the
+                // previous start crashed after this very import. Report the same terminal result
+                // instead of failing the overlay state check, so the host never reads one request
+                // as both OK and FAILED.
+                LogUtils.i(TAG, "imported already, overlay id " + nextOverlayId);
+                LogUtils.i(HotfixLoader.TAG, RESULT_MARKER + " OK " + requestId);
+                return;
+            }
             checkOverlayState(overlayDir, expectedOverlayId);
 
             stage = "extract";
@@ -220,6 +229,22 @@ public final class RootlessCompatDeployImporter {
         }
         if (!expectedSha256.equals(sha256(payload))) {
             throw new IOException("payload digest mismatch");
+        }
+    }
+
+    /**
+     * True only when the committed overlay already carries this request's own next overlay id, which
+     * means this exact payload has been applied. Any other committed overlay stays a state mismatch.
+     */
+    private static boolean isOverlayCommitted(File overlayDir, String nextOverlayId) {
+        File idFile = new File(overlayDir, OVERLAY_ID_FILE_NAME);
+        if (!idFile.isFile()) {
+            return false;
+        }
+        try {
+            return nextOverlayId.equals(readText(idFile).trim());
+        } catch (IOException e) {
+            return false;
         }
     }
 

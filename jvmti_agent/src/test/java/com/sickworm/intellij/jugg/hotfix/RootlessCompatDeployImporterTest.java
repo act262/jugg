@@ -3,6 +3,8 @@ package com.sickworm.intellij.jugg.hotfix;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -19,6 +21,11 @@ import java.util.zip.ZipOutputStream;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * Verifies the rootless compat import rules the host relies on: a request is applied atomically to
@@ -113,6 +120,52 @@ public class RootlessCompatDeployImporterTest {
 
         assertEquals("another-overlay", read(new File(overlayDir, "id")));
         assertFalse(new File(overlayDir, "New.dex").exists());
+    }
+
+    @Test
+    public void importRequest_shouldReportTheSameOkWhenTheCommittedOverlayIsImportedAgain() throws Exception {
+        writeOverlayFile("id", EXPECTED_OVERLAY_ID);
+        writeOverlayFile("Old.dex", "old");
+        stageRequest(overrides(
+                "expectedOverlayId", EXPECTED_OVERLAY_ID,
+                "nextOverlayId", NEXT_OVERLAY_ID,
+                "payloadEntries", "New.dex=dex"
+        ));
+        String okLine = "__JUGG_ROOTLESS_IMPORT__ OK " + requestDir.getName();
+
+        try (MockedStatic<LogUtils> logs = mockStatic(LogUtils.class)) {
+            RootlessCompatDeployImporter.importRequest(PACKAGE_NAME, requestDir);
+            logs.verify(() -> LogUtils.i(HotfixLoader.TAG, okLine));
+
+            // The app may start again before the host reads the result. The same request must keep
+            // reporting the same terminal result instead of failing on the overlay it committed.
+            RootlessCompatDeployImporter.importRequest(PACKAGE_NAME, requestDir);
+
+            logs.verify(() -> LogUtils.i(HotfixLoader.TAG, okLine), times(2));
+            assertEquals(NEXT_OVERLAY_ID, read(new File(overlayDir, "id")));
+            assertEquals("dex", read(new File(overlayDir, "New.dex")));
+            assertEquals("old", read(new File(overlayDir, "Old.dex")));
+        }
+    }
+
+    @Test
+    public void importRequest_shouldFailWhenTheOverlayIdIsNotThisRequestResult() throws Exception {
+        writeOverlayFile("id", "unrelated-overlay");
+        writeOverlayFile("Old.dex", "old");
+        stageRequest(overrides(
+                "expectedOverlayId", EXPECTED_OVERLAY_ID,
+                "nextOverlayId", NEXT_OVERLAY_ID,
+                "payloadEntries", "New.dex=dex"
+        ));
+
+        try (MockedStatic<LogUtils> logs = mockStatic(LogUtils.class)) {
+            RootlessCompatDeployImporter.importRequest(PACKAGE_NAME, requestDir);
+
+            logs.verify(() -> LogUtils.i(eq(HotfixLoader.TAG),
+                    argThat(line -> line.startsWith("__JUGG_ROOTLESS_IMPORT__ FAILED " + requestDir.getName()))));
+            assertFalse(new File(overlayDir, "New.dex").exists());
+            assertEquals("old", read(new File(overlayDir, "Old.dex")));
+        }
     }
 
     @Test

@@ -1,6 +1,6 @@
 # 运行时与 JVMTI 支持
 
-> 最后核对：2026-09-14
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -296,6 +296,8 @@ hook 不限制资源名。部署到 `.overlay` 的内容是预期覆盖状态，
 - `jugg_agent_setup.sh` 不再按 HarmonyOS 版本创建 `.need_fix_dex_path_list`。升级前已经存在的旧 flag 不在本轮主动清理，避免误删 `DexPathListFixer` 自检测产生的状态。
 - app sandbox 已存在当前 agent 版本时不会按新解析结果替换其 so。App ABI 变化后若残留旧架构 agent，需要通过重装 App 清理 sandbox 后重新准备。
 - `AndroidNClassLoader` 重建 dex path 时，仅在非 isolated split 场景使用 `sourceDir + splitSourceDirs`；无 split APK、启用 isolated split loading 或无法可靠识别隔离状态时继续沿用原有 base APK 筛选。不能只从原 `dexElements` 取 split 路径，因为应用早期启动阶段已安装的 split APK 可能尚未挂入该数组。
+- `AndroidNClassLoader` 更新 `DrawableInflater#mClassLoader` 时，Android 12+ hidden API 会对 targetR 及以上应用返回 `NoSuchFieldException`，部分 ROM 也移除了该字段；这种明确的 `NoSuchFieldException` 按 Best-effort 跳过并打印 warn，XML drawable 继续使用原 ClassLoader。其余异常保持原规则（Incremental APK 忽略，其它抛出），不要放宽成吞掉全部异常。
+- `DexPatchLoader` 只有收集到 embedded/overlay dex 才替换 App ClassLoader；纯资源 overlay 直接跳过注入，让 `HotfixLoader` 继续执行 `ResourcesPatchLoader`，避免无 dex 时仍依赖 framework 私有字段而中断 App 启动。
 
 ---
 

@@ -332,6 +332,58 @@ class JuggProjectInfoSerializerAndroidTestTest {
     }
 
     @Test
+    fun `deserialize old project info without R package name yields null`() {
+        val library = LibraryDependency("com.example:external:1.0", File("/gradle/caches/external/res"), 0L, 1L)
+        val original = projectInfoWithoutAgpR8(
+            modules = mapOf("app" to ModuleInfo.virtualModule.copy(
+                name = "app",
+                libraryDependencies = listOf(library),
+            ))
+        )
+        val json = JsonParser.parseString(
+            ProjectInfoSerializer.gson.toJson(JuggProjectInfoSerialize.serialize(original))
+        ).asJsonObject
+        json.getAsJsonArray("dependencyList")[0].asJsonObject.remove("rPackageName")
+        val serialized = ProjectInfoSerializer.gson.fromJson(json, JuggProjectInfoSerialize::class.java)
+
+        val restored = JuggProjectInfoSerialize.deserialize(serialized, isSkipVersionCheck = true)
+
+        assertNull(restored.modules["app"]?.libraryDependencies?.single()?.rPackageName)
+    }
+
+    @Test
+    fun `project info file round-trip preserves R package name`() {
+        val dataFile = Files.createTempFile("jugg_project_info_r_package_", ".json").toFile()
+        val logger = StdLogger("JuggProjectInfoSerializerAndroidTestTest")
+        try {
+            ProjectInfoSerializer(dataFile, logger).save(JuggProjectInfo(
+                modules = mapOf("app" to ModuleInfo.virtualModule.copy(
+                    name = "app",
+                    libraryDependencies = listOf(
+                        LibraryDependency(
+                            "com.example:external:1.0",
+                            File("/gradle/caches/external/res"),
+                            0L,
+                            1L,
+                            "com.example.external",
+                        )
+                    ),
+                )),
+                agpR8Classpath = null,
+            ))
+
+            val restored = ProjectInfoSerializer(dataFile, logger).load(isSkipVersionCheck = true)
+
+            assertEquals(
+                "com.example.external",
+                restored?.modules?.get("app")?.libraryDependencies?.single()?.rPackageName,
+            )
+        } finally {
+            dataFile.delete()
+        }
+    }
+
+    @Test
     fun `deserialize old project info without Kotlin common source directories defaults to empty list`() {
         val original = projectInfoWithoutAgpR8(
             modules = mapOf("shared" to ModuleInfo.virtualModule.copy(name = "shared"))

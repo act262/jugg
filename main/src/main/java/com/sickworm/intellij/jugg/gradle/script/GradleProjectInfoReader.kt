@@ -1440,12 +1440,32 @@ class GradleProjectInfoReader(
             resolvedArtifacts.addAll(jarArtifacts.values)
         }
 
+        // Best-effort R package name per component. The artifact type is an AGP build model capability,
+        // so an unsupported AGP only closes this source and keeps the AAR manifest package as fallback.
+        val rPackageNames = mutableMapOf<String, String>()
+        fun putSymbolPackageNames() {
+            val symbolView = resolvedConfiguration.incoming.artifactView(
+                SimpleArtifactFilter("android-symbol-with-package-name")
+            )
+            symbolView.artifacts.artifacts.forEach {
+                val identifier = it.id.componentIdentifier
+                if (identifier is ProjectComponentIdentifier) {
+                    return@forEach
+                }
+                val rPackageName = it.file.readFirstNonEmptyLine()
+                if (!rPackageName.isNullOrEmpty()) {
+                    rPackageNames[identifier.toString()] = rPackageName
+                }
+            }
+        }
+
         if (isAndroidDepend) {
             val resView = resolvedConfiguration.incoming.artifactView(SimpleArtifactFilter("android-res"))
             resolvedArtifacts.addAll(resView.artifacts.artifacts)
             val manifestView = resolvedConfiguration.incoming.artifactView(SimpleArtifactFilter("android-manifest"))
             resolvedArtifacts.addAll(manifestView.artifacts.artifacts)
             putJarArtifacts()
+            putSymbolPackageNames()
         } else {
             // "jar" is not correct when dependency using android-support library, e.g. ARouter
             // "processed-jar" returns empty list if jetifier not enabled
@@ -1457,10 +1477,12 @@ class GradleProjectInfoReader(
             if (identifier is ProjectComponentIdentifier) {
                 return@forEach // project dependency already handled at top
             }
+            // all artifacts of one component share the identifier, so res/manifest/jar carry the same namespace
+            val rPackageName = rPackageNames[identifier.toString()]
             val cache = dependenciesCrcCache[it.file.absolutePath]
             if (cache != null) {
                 if (cache.lastModifiedTime == it.file.lastModified()) {
-                    result.add(cache)
+                    result.add(cache.withRPackageName(rPackageName))
                     return@forEach
                 }
             }
@@ -1472,17 +1494,17 @@ class GradleProjectInfoReader(
                 val dependencyName = file.standardFileCollectionLibraryName
                 if (identifier.toString().endsWith(".jar")) {
                     // jar file, use origin jar file to match project info from IDE
-                    val libraryDependency = LibraryDependency(dependencyName, file)
+                    val libraryDependency = LibraryDependency(dependencyName, file).withRPackageName(rPackageName)
                     result.add(libraryDependency)
                 } else {
                     // aar file, use extract files in .gradle
-                    val libraryDependency = LibraryDependency(dependencyName, it.file)
+                    val libraryDependency = LibraryDependency(dependencyName, it.file).withRPackageName(rPackageName)
                     dependenciesCrcCache[file.absolutePath] = libraryDependency
                     result.add(libraryDependency)
                 }
             } else {
                 val libraryName = identifier.displayName.standardLibraryName
-                val libraryDependency = LibraryDependency(libraryName, it.file)
+                val libraryDependency = LibraryDependency(libraryName, it.file).withRPackageName(rPackageName)
                 dependenciesCrcCache[it.file.absolutePath] = libraryDependency
                 result.add(libraryDependency)
             }
@@ -1515,6 +1537,28 @@ class GradleProjectInfoReader(
                 getProjectDependencies(result, dependency.children)
             }
         }
+    }
+
+    /**
+     * Best-effort read of the first non-empty line, which is the R package name of `package-aware-r.txt`.
+     */
+    private fun File.readFirstNonEmptyLine(): String? {
+        return try {
+            useLines { lines -> lines.firstOrNull { it.isNotBlank() } }?.trim()?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            println("Jugg: read R package name from $absolutePath failed, $e")
+            null
+        }
+    }
+
+    /**
+     * Keeps the AAR R namespace metadata when a cached dependency file is reused as-is.
+     */
+    private fun LibraryDependency.withRPackageName(rPackageName: String?): LibraryDependency {
+        if (rPackageName == null || rPackageName == this.rPackageName) {
+            return this
+        }
+        return copy(rPackageName = rPackageName)
     }
 
     private val String.standardLibraryName: String get() {

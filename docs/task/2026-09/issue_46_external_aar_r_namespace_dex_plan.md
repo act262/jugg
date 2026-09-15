@@ -2,12 +2,12 @@
 
 ## 1. 文档状态
 
-- 当前阶段：方案已确认，待实施。
+- 当前阶段：已实施，等待独立 review；实施结果与验证证据见 §16。
 - 对应 Issue：[tencentmusic/jugg#46](https://github.com/tencentmusic/jugg/issues/46)。
 - 现场报告：`a0247301`。
 - 已有失败用例：`JuggCompilerTest.external AAR resource update generates library namespace R dex`。
 - 失败用例提交：`186b54362 [test] reproduce missing external AAR R dex after resource update`。
-- 本文只定义实施范围、兼容策略与验证门禁，不包含生产代码改动。
+- 本文定义实施范围、兼容策略与验证门禁。
 
 ## 2. 问题描述
 
@@ -84,7 +84,7 @@ AAR 格式要求包含 `AndroidManifest.xml`，但格式契约没有保证高版
 
 ### 4.2 已确认的稳定语义来源
 
-AGP 的 `symbol-list-with-package-name` artifact 对应 `package-aware-r.txt`。其首个非空行保存该
+AGP 的 `android-symbol-with-package-name` artifact 对应 `package-aware-r.txt`。其首个非空行保存该
 Android library 的 R package/namespace，后续内容为资源符号表。它与外部库编译时使用的 R class
 语义一致，是首选来源。
 
@@ -95,7 +95,7 @@ Best-effort：当前 AGP 不支持或结果为空时，只降级到 AAR Manifest
 
 外部依赖的 R namespace 按以下顺序解析：
 
-1. `symbol-list-with-package-name` / `package-aware-r.txt` 的首个非空行；
+1. `android-symbol-with-package-name` / `package-aware-r.txt` 的首个非空行；
 2. AAR `AndroidManifest.xml` 的 `package`；
 3. 两者均不存在时，明确失败并提示执行完整 Gradle 构建，不静默遗漏外部 R.dex。
 
@@ -149,7 +149,7 @@ val rPackageName: String? = null
 读取之外，Best-effort 请求：
 
 ```text
-symbol-list-with-package-name
+android-symbol-with-package-name
 ```
 
 处理规则：
@@ -213,7 +213,7 @@ LibraryDependency.rPackageName
 
 ```text
 Gradle dependency artifacts
-  ├─ symbol-list-with-package-name ──首选──┐
+  ├─ android-symbol-with-package-name ─首选─┐
   ├─ android-manifest ───────────────回退──┤
   └─ android-res ─────────────────资源变化─┘
                          ↓
@@ -303,7 +303,7 @@ base APK: <external namespace>/R*.dex
 
 1. 强化现有 Issue #46 失败用例，明确断言 `R$string.dex`，保留红灯证据。
 2. 为 `LibraryDependency` 增加可选字段，并补旧缓存与 diff 稳定性测试。
-3. 在 project info 读取端接入 `symbol-list-with-package-name`，同步生成脚本并完成 Gradle 兼容验证。
+3. 在 project info 读取端接入 `android-symbol-with-package-name`，同步生成脚本并完成 Gradle 兼容验证。
 4. 在 `DependencyDiffResultHelper` 实现 symbol 优先、Manifest 回退和冲突记录，将结果透传到 Resource。
 5. 在 `RDexForSubmoduleCompiler` 实现 tempModule namespace 收集、去重、改包和缺失失败。
 6. 运行 L1/L2 定向测试，确认既有 project module 行为未回归。
@@ -315,7 +315,7 @@ base APK: <external namespace>/R*.dex
 
 ### 12.1 AGP 内部 artifact 名称变化
 
-风险：部分 AGP 不支持 `symbol-list-with-package-name`。
+风险：部分 AGP 不支持 `android-symbol-with-package-name`。
 
 约束：artifact view 读取采用局部 Best-effort；失败只关闭该来源，继续使用 Manifest 回退。
 
@@ -363,3 +363,31 @@ base APK: <external namespace>/R*.dex
 ## 15. 实施授权边界
 
 当前授权仅为落地本方案文档。开始修改生产代码、测试或知识库前，需要用户另行明确授权实施。
+
+## 16. 实施结果
+
+生产改动与 §8 计划范围一致：
+
+- `LibraryDependency` 增加可选 `rPackageName`。主构造函数不带默认值，由 2 参 / 4 参 secondary constructor 与 5 参 `libraryDependency` 工厂提供兼容入口。
+- `GradleProjectInfoReader` Best-effort 读取 `android-symbol-with-package-name`，按 component identifier 关联到同一依赖的 res / manifest / jar；`readProjectInfo.gradle.kts` 全部由 `buildReadProjectInfoScript` 刷新生成。
+- `DependencyDiffResultHelper` 按 `LibraryDependency.rPackageName` -> AAR Manifest `package` -> `null` 解析，冲突时 symbol 优先并记录 `JuggLogger.debug`；结果只写入外部 Resource 变更的 `r_package_name`。
+- `RDexForSubmoduleCompiler` 保留普通 module 逻辑，新增 temp module 分支：按 namespace 去重、排除 application 主 R package、对宿主本轮全部主 R `*.dex` 执行 `DexPackageRenamer`，沿用 temp module 的 base APK 路由；namespace 完全缺失时抛出含 dependency name 的 `JuggException`。
+- 复制与序列化路径显式保留字段：`ProjectInfoSerializerInGradle` 的手工 `JsonGenerator` 白名单转换器与 `load()`、`BaseCompileContext.saveTempLibraries()`。
+
+与方案的已知偏差：§6.1 给出的 `val rPackageName: String? = null` 会让生成 init script 在 Gradle 8.11.1 的 Kotlin DSL 编译期崩溃（`JvmDefaultParameterInjector` IR lowering 异常），因此改为主构造函数不带默认值、由 secondary constructor 承担默认值，对外契约不变，旧快照仍按 `null` 读取。
+
+验证证据：
+
+| 层级 | 用例 | 结果 |
+|---|---|---|
+| L1 | `RDexForSubmoduleCompilerTest`（多 namespace / 相同 namespace 去重 / application namespace 排除 / namespace 缺失失败 / feature APK 回归） | 4 通过 |
+| L1 | `DependencyDiffResultTest`（symbol 优先 / Manifest 回退 / 两者缺失 / metadata 不触发依赖更新） | 21 通过 |
+| L1 | `JuggProjectInfoSerializerAndroidTestTest`、`ProjectInfoSerializerInGradleAndroidTestTest`（旧快照兼容与往返） | 19 / 13 通过 |
+| L2 | `JuggCompilerTest`（含 Issue #46 用例与 `testCompileResDir` 回归） | 19 通过 |
+| L2 | `ReadProjectInfoGradle5CompatTest` / `6` / `7` / `9`（含 Gradle 8.11.1 用例）、`ReadProjectInfoScriptContentTest`、`GradleProjectInfoReaderAndroidTestTest` | 1 / 1 / 5 / 12 / 12 / 14 通过 |
+
+失败证据：强化前的 `JuggCompilerTest.external AAR resource update generates library namespace R dex` 在 `JuggCompilerTest.kt:264` 断言外部 R.dex 未生成而失败；强化后（断言外部 namespace 下 `R$string.dex` 及其新增字段）在 `JuggCompilerTest.kt:270` 继续失败，实施后稳定通过。
+
+产物证据：真实 demo 工程走完整 `JuggCompiler` 链路后，`android_demo_project/build/jugg/build/staging/classes/com/example/external/` 生成 14 个 `R*.dex`，其中 `R$string.dex` 同时包含 `Lcom/example/external/R$string;` 与字段名 `external_new_title`。
+
+未完成项：§10.4 要求的真机运行时替代验证未执行。阻碍是 demo 工程只有 `fileTree(dir: 'libs', include: ['*.jar'])`，不存在自带 namespace 且资源会发生变化的外部 AAR；复现需要额外构造两个 AAR 版本、刷新完整 Gradle 基线，并让本工作区构建的插件在 IDE 中接管运行。当前设备链路（`jugg status`）连接的不是本工作区插件产物，也没有完整构建基线（`hasBeenFullCompiled: false`），因此不做伪造结论。最接近的证据是上述真实编译链路的产物与字节码断言。

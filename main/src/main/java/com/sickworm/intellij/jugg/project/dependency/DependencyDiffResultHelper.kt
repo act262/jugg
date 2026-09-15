@@ -2,6 +2,7 @@ package com.sickworm.intellij.jugg.project.dependency
 
 import com.intellij.openapi.diagnostic.Logger
 import com.sickworm.intellij.jugg.compiler.*
+import com.sickworm.intellij.jugg.compiler.manifest.XmlAndroidManifestInfo
 import com.sickworm.intellij.jugg.project.ChangedFile
 import com.sickworm.intellij.jugg.project.data.LibraryDependency
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -19,6 +20,11 @@ class DependencyDiffResultHelper(
 
     fun getNewLibraryFiles(): List<ChangedFile> {
         logger.debug("get new libraries: ${diffResult.newLibraryDependencies}")
+
+        // R namespace of each external dependency, used to generate its R class in the host build
+        val rPackageNames = diffResult.newLibraryDependencies
+            .groupBy { it.name }
+            .mapValues { (_, libraries) -> resolveRPackageName(libraries) }
 
         // relative path to old jar file
         // diff with full build dependencies, because library dex are in one file, which can not incremental update
@@ -99,6 +105,7 @@ class DependencyDiffResultHelper(
                     baseDir = it.file,
                     module = tempModule,
                 ).withDependencyName(it.name)
+                    .withRPackageName(rPackageNames[it.name])
                     .withOldRes(relativeOldFiles[it.file.absolutePath])
             } else if (it.isJar) {
                 return@mapNotNull ChangedFile(
@@ -174,6 +181,26 @@ class DependencyDiffResultHelper(
 
         logger.debug("removed library files: $removedLibraryFiles")
         return removedLibraryFiles
+    }
+
+    /**
+     * Resolves the R namespace of one external dependency. The Gradle symbol artifact is the source
+     * that matches the R class used when the AAR was compiled, the AAR manifest package is only a
+     * compatibility fallback because the AAR format does not guarantee it on newer AGP.
+     * Returns null when neither source is available, so the caller can fail explicitly.
+     */
+    private fun resolveRPackageName(libraries: List<LibraryDependency>): String? {
+        val symbolPackageName = libraries.firstNotNullOfOrNull { it.rPackageName?.takeIf(String::isNotEmpty) }
+        val manifestPackageName = libraries.find { it.isAndroidManifest }
+            ?.takeIf { it.file.exists() }
+            ?.let { XmlAndroidManifestInfo.parse(it.file).packageName }
+            ?.takeIf(String::isNotEmpty)
+
+        if (symbolPackageName != null && manifestPackageName != null && symbolPackageName != manifestPackageName) {
+            logger.debug("R package name conflict for ${libraries.first().name}: symbol is $symbolPackageName" +
+                    ", manifest is $manifestPackageName, use the symbol one.")
+        }
+        return symbolPackageName ?: manifestPackageName
     }
 
     private fun getRevertLibraryFiles(): List<ChangedFile> {

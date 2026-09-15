@@ -93,6 +93,7 @@ class ProjectInfoSerializerInGradle(private val dataFile: File) {
                         file = File(it["file"] as String),
                         lastModifiedTime = (it["lastModifiedTime"] as Number).toLong(),
                         crc32 = (it["crc32"] as Number).toLong(), // you will get Int and Long, so convert to Number
+                        rPackageName = it["rPackageName"] as? String, // missing field in old project info
                     )
                 }
                 val rootInfo = json["juggProjectInfoExceptModules"] as? Map<String, Any>
@@ -217,6 +218,12 @@ class ProjectInfoSerializerInGradle(private val dataFile: File) {
                     result["file"] = libraryDependency.file
                     result["lastModifiedTime"] = libraryDependency.lastModifiedTime
                     result["crc32"] = libraryDependency.crc32
+                    // Only resources consume the namespace; avoid repeating it on manifest and jar entries.
+                    if (libraryDependency.isRes) {
+                        libraryDependency.rPackageName?.let {
+                            result["rPackageName"] = it
+                        }
+                    }
                     return result
                 }
             }

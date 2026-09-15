@@ -44,6 +44,11 @@ class JuggException(msg: String): Exception(msg) {
 
         fun apkDbNotFound(apkInfoKey: String) =
             JuggException("Can not found apk database for apkInfoKey: $apkInfoKey")
+
+        fun externalRDexPackageNameMissing(dependencyNames: Collection<String>) =
+            JuggException("Can not resolve R package name for external dependencies: ${dependencyNames.joinToString()}. " +
+                    "Their R class can not be generated for this incremental build, " +
+                    "please run a full Gradle build to recover.")
     }
 }
 

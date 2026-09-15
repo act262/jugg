@@ -251,6 +251,15 @@ class ReadProjectInfoScriptContentTest {
     }
 
     @Test
+    fun generatedScript_shouldRequestPackageAwareSymbolArtifact() {
+        val scriptText = javaClass.getResource("/gradle/readProjectInfo.gradle.kts")?.readText()
+        assertNotNull(scriptText)
+
+        assertTrue(scriptText.contains("SimpleArtifactFilter(\"android-symbol-with-package-name\")"))
+        assertTrue(scriptText.contains("if (libraryDependency.isRes) {"))
+    }
+
+    @Test
     fun generatedScript_shouldIncludeGlobalPathManagerBeforePathManager() {
         val scriptText = javaClass.getResource("/gradle/readProjectInfo.gradle.kts")?.readText()
         assertNotNull(scriptText)

@@ -3,6 +3,8 @@ package com.sickworm.intellij.jugg.manager
 import com.sickworm.intellij.jugg.compiler.CompileFile
 import com.sickworm.intellij.jugg.compiler.CompileOutput
 import com.sickworm.intellij.jugg.compiler.withDependencyName
+import com.sickworm.intellij.jugg.compiler.withRPackageName
+import com.sickworm.intellij.jugg.deploy.classSigName
 import com.sickworm.intellij.jugg.deploy.data.ApkParser
 import com.sickworm.intellij.jugg.deploy.desugarDefaultInterfaceSuffix
 import com.sickworm.intellij.jugg.mock.androidApkPackage
@@ -254,19 +256,41 @@ class JuggCompilerTest {
                     ChangedFile(CompileFile.Type.AndroidManifest, manifest, manifest, tempModule)
                         .withDependencyName(dependencyName),
                     ChangedFile(CompileFile.Type.Resource, strings, resDir, tempModule)
-                        .withDependencyName(dependencyName),
+                        .withDependencyName(dependencyName)
+                        .withRPackageName("com.example.external"),
                 )
             )
 
             jugg.compileChangedFiles()
 
             assertTrue(jugg.deployFileManager.getUncompiledFiles().isEmpty())
+            val stagingDexFiles = jugg.deployFileManager.getStagingFiles().filter {
+                it.type == CompileOutput.Type.Dex &&
+                        it.file.invariantSeparatorsPath.contains("/com/example/external/")
+            }
             assertTrue(
-                jugg.deployFileManager.getStagingFiles().any {
-                    it.type == CompileOutput.Type.Dex &&
-                            it.file.invariantSeparatorsPath.endsWith("/com/example/external/R.dex")
-                },
-                "external AAR R dex was not generated",
+                stagingDexFiles.any { it.file.name == "R.dex" },
+                "external AAR R dex was not generated, staging dex: ${stagingDexFiles.map { it.file.name }}",
+            )
+
+            // The external AAR bytecode reads its own namespace R class, so the renamed R$string
+            // must carry the resource field added in this round.
+            val rStringDexFiles = stagingDexFiles.filter { it.file.name == "R\$string.dex" }
+            assertTrue(
+                rStringDexFiles.size == 1,
+                "expect one external AAR R\$string dex, staging dex: ${stagingDexFiles.map { it.file.name }}",
+            )
+            val rStringClassNodes = ApkParser().parseDexFiles(listOf(rStringDexFiles.single().file))
+                .classDeployItems.flatMap { it.classNodes }
+            val rStringClassName = "com.example.external.R\$string".classSigName
+            val rStringClasses = rStringClassNodes.filter { it.className == rStringClassName }
+            assertTrue(
+                rStringClasses.size == 1,
+                "external AAR R\$string dex has no renamed class, classes: ${rStringClassNodes.map { it.className }}",
+            )
+            assertTrue(
+                rStringClasses.single().fields.any { it.name == "external_new_title" },
+                "external AAR R\$string dex has no new field, fields: ${rStringClasses.single().fields.map { it.name }}",
             )
         } finally {
             fixtureRoot.deleteRecursively()

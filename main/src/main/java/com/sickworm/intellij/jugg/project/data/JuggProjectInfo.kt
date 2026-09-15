@@ -448,13 +448,24 @@ data class LibraryDependency(
     val name: String,
     val file: File,
     val lastModifiedTime: Long,
-    val crc32: Long
+    val crc32: Long,
+    /**
+     * R package name (namespace) of the owning AAR, read from the Gradle
+     * `android-symbol-with-package-name` artifact. It is dependency metadata: it is not part of
+     * [LibraryDependencySet] file set and does not participate in the CRC diff, so filling it in
+     * for an old cache does not mark the dependency as updated.
+     */
+    val rPackageName: String?
 ) : Dependency {
 
-    // secondary constructor provides defaults to avoid Kotlin 1.5 script codegen crash:
+    // secondary constructors provide defaults to avoid script codegen crash:
     // primary constructor default values referencing top-level functions in .kts files
-    // trigger "Error generating constructors" in Kotlin 1.5 (Gradle 7 / AGP 3.5)
-    constructor(name: String, file: File) : this(name, file, file.lastModified(), computeCrc32(file))
+    // trigger "Error generating constructors" in Kotlin 1.5 (Gradle 7 / AGP 3.5), and any
+    // constructor default value breaks the Kotlin DSL IR lowering of the init script (Gradle 8.11)
+    constructor(name: String, file: File) : this(name, file, file.lastModified(), computeCrc32(file), null)
+
+    constructor(name: String, file: File, lastModifiedTime: Long, crc32: Long) :
+            this(name, file, lastModifiedTime, crc32, null)
 
     val isValid get() = file.exists()
 

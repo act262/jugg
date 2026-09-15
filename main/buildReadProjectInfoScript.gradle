@@ -374,6 +374,7 @@ fun juggPathManager(projectDir: File) = JuggPathManager(projectDir)
 fun moduleBuildPathInfo(projectRootDir: File, moduleRootDir: File, buildVariant: String, buildDirRelativePath: String) = ModuleBuildPathInfo(projectRootDir, moduleRootDir, buildVariant, buildDirRelativePath = buildDirRelativePath)
 fun libraryDependency(name: String, file: File) = LibraryDependency(name, file)
 fun libraryDependency(name: String, file: File, lastModifiedTime: Long, crc32: Long) = LibraryDependency(name, file, lastModifiedTime, crc32)
+fun libraryDependency(name: String, file: File, lastModifiedTime: Long, crc32: Long, rPackageName: String?) = LibraryDependency(name, file, lastModifiedTime, crc32, rPackageName)
 fun gradleApplicationInjector(rootProject: Project) = GradleApplicationInjector(rootProject)
 fun gradleProjectInfoReaderManager(rootProject: Project, includedBuilds: Collection<IncludedBuild>) = GradleProjectInfoReaderManager(rootProject, includedBuilds)
 """

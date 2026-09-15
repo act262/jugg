@@ -6,6 +6,7 @@ import com.sickworm.intellij.jugg.project.ProjectInfoSerializer
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.JuggProjectInfo
+import com.sickworm.intellij.jugg.project.data.LibraryDependency
 import com.sickworm.intellij.jugg.project.data.ModuleBuildPathInfo
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import com.sickworm.intellij.jugg.project.data.ModuleDependency
@@ -415,6 +416,43 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
     }
 
     /** Rewrites the unified external build keys back to the fields older Jugg versions persisted. */
+    @Test
+    fun `load restores R package name and tolerates old snapshots without it`() {
+        val tmpFile = Files.createTempFile("jugg_test_", ".json").toFile()
+        val original = projectInfoWithoutAgpR8(mapOf(
+            "app" to ModuleInfo.virtualModule.copy(
+                name = "app",
+                libraryDependencies = listOf(
+                    LibraryDependency(
+                        "com.example:external:1.0",
+                        File("/gradle/caches/external/res"),
+                        0L,
+                        1L,
+                        "com.example.external",
+                    )
+                ),
+            )
+        ))
+        try {
+            ProjectInfoSerializerInGradle(tmpFile).save(original)
+            assertEquals(
+                "com.example.external",
+                ProjectInfoSerializerInGradle(tmpFile).load()?.dependencyList?.single()?.rPackageName,
+            )
+
+            // project info written before the R namespace was collected has no such field at all
+            val root = JsonParser.parseString(tmpFile.readText()).asJsonObject
+            root.getAsJsonArray("dependencyList").forEach {
+                it.asJsonObject.remove("rPackageName")
+            }
+            tmpFile.writeText(root.toString())
+
+            assertNull(ProjectInfoSerializerInGradle(tmpFile).load()?.dependencyList?.single()?.rPackageName)
+        } finally {
+            tmpFile.delete()
+        }
+    }
+
     private fun File.rewriteExternalBuildInfosToLegacyFormat() {
         val root = JsonParser.parseString(readText()).asJsonObject
         root.getAsJsonArray("modules").forEach { module ->

@@ -47,11 +47,13 @@ Overview 聚合以下信息：
 
 Logs 页展示 Jugg 的结构化核心事件，可以按来源、级别、当前任务和关键词过滤。
 
-- 来源包括 Deploy、Runtime、CLI / MCP。
+- 来源包括 IDE、CLI / MCP。Jugg 业务点击和确认框记为 User Action。
 - 级别包括 Info、Warn、Error。
-- \`Current task\` 只保留当前任务事件。
+- \`Current task\` 只保留当前编译/部署任务事件，不包含点击记录。
 - \`Follow\` 自动跟随新事件。
 - 选中事件后可复制，适合附加到问题报告。
+
+点击 Quick Actions、菜单/工具栏上的 Jugg 动作，或编译确认框后，Logs 页会出现对应 User Action。同一条文案也会写入 \`build/jugg/log/compile_latest.log\`，前缀固定为 \`[UserAction]\`。Overview 的 Last Deploy 时间线只显示当前运行任务，不会列出这些点击。
 
 结构化日志用于快速定位阶段，不替代完整日志。需要查看 Gradle 输出、异常栈或底层部署细节时，继续打开 \`build/jugg/log/compile_latest.log\`。
 

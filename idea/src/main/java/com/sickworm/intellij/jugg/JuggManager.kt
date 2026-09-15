@@ -35,6 +35,7 @@ import com.sickworm.intellij.jugg.ide.ui.CheckUpdatesProgressDialog
 import com.sickworm.intellij.jugg.ide.ui.CommonConfirmDialog
 import com.sickworm.intellij.jugg.ide.ui.InstallJuggSkillsDialog
 import com.sickworm.intellij.jugg.ide.ui.JuggControlPanelController
+import com.sickworm.intellij.jugg.ide.controlpanel.JuggEvent
 import com.sickworm.intellij.jugg.ide.ui.ReportIssueDialog
 import com.sickworm.intellij.jugg.ide.ui.ReportIssueProgressDialog
 import com.sickworm.intellij.jugg.ide.ui.ReportIssueResultDialog
@@ -106,13 +107,6 @@ class JuggManager @TestOnly constructor(
         private const val RUN_CONFIG_RETRY_BASE_DELAY_MS = 2000L
     }
 
-    private val juggConfigurationRunner: JuggConfigurationRunner = JuggConfigurationRunner(project, pathManager,
-        deployHistoryManager, juggRunningTaskStatusManager,
-        JuggRunningTaskCreator(), gitFileChangesDetector,
-        logger)
-    private val forceGradleCompileHelper: ForceGradleCompileHelper = IdeaForceGradleCompileHelper(project, juggConfigurationRunner,
-        deployFileManager, taskRunnerManager,
-        compileContextManager, logger)
     private val controlPanelController = JuggControlPanelController(
         project = project,
         manager = this,
@@ -121,6 +115,13 @@ class JuggManager @TestOnly constructor(
         deployFileManager = deployFileManager,
         logger = logger.getInstance("JuggControlPanelController"),
     )
+    private val juggConfigurationRunner: JuggConfigurationRunner = JuggConfigurationRunner(project, pathManager,
+        deployHistoryManager, juggRunningTaskStatusManager,
+        JuggRunningTaskCreator(), gitFileChangesDetector,
+        logger, controlPanelController)
+    private val forceGradleCompileHelper: ForceGradleCompileHelper = IdeaForceGradleCompileHelper(project, juggConfigurationRunner,
+        deployFileManager, taskRunnerManager,
+        compileContextManager, logger, controlPanelController)
     private val mcpInvoker: McpToolInvoker = McpToolInvoker(pathManager.projectDir.absolutePath,
         IdeaMcpRuntime(logger.getInstance("McpRuntime"), project, deployTargetManager, deployStateManager, forceGradleCompileHelper, juggConfigurationRunner, deployFileManager, juggCompilerHelper, gitFileChangesDetector),
         eventModel = controlPanelController.model,
@@ -590,6 +591,7 @@ class JuggManager @TestOnly constructor(
             onEndListener = { runResult ->
                 debugSessionManager?.attachAfterSuccessfulRun(runResult, compileUiHandler)
             },
+            userActions = controlPanelController,
         )
         return juggConfigurationRunner.runTask(options.toCompileOptions(pathManager), compileUiHandler, executor, runProfile, androidTestRunSpec)
     }
@@ -666,6 +668,7 @@ class JuggManager @TestOnly constructor(
     }
 
     override fun gradleCompile() {
+        controlPanelController.recordUserAction("Fallback to Gradle")
         logger.debug("[action] gradleCompile")
         forceGradleCompileHelper.executeGradleCompile()
     }
@@ -699,6 +702,7 @@ class JuggManager @TestOnly constructor(
             JuggSettings.getRemoteCommandHistory(targetKey),
         )
         if (!dialog.showAndGet()) return
+        controlPanelController.recordUserAction("Exec remote CMD")
         val command = dialog.command()
         RemoteCommandRunner(project, logger).run(selectedSettings.name, options, command)
         JuggSettings.recordRemoteCommand(targetKey, command)
@@ -724,6 +728,11 @@ class JuggManager @TestOnly constructor(
             "Confirm Clean and Reset Jugg",
             "<html>This will delete all cache files and reopen project.<br>Are you sure to continue?</html>"
         )
+        controlPanelController.recordUserAction(
+            action = if (confirmed) "confirmed" else "canceled",
+            title = "Clear Jugg Build",
+            status = if (confirmed) JuggEvent.Status.SUCCEEDED else JuggEvent.Status.CANCELED,
+        )
         if (!confirmed) return
         logger.info("cleanAndResetJugg confirmed, start delete all files")
         pathManager.juggRootDir.listFiles()?.forEach {
@@ -748,10 +757,12 @@ class JuggManager @TestOnly constructor(
     }
 
     override fun installSkills() {
+        controlPanelController.recordUserAction("Install CLI & Skill")
         InstallJuggSkillsDialog.installJuggMcpAndSkills(project, pathManager.projectDir, taskRunnerManager, logger)
     }
 
     override fun checkUpdates() {
+        controlPanelController.recordUserAction("Check updates")
         val dialog = CheckUpdatesProgressDialog()
         taskRunnerManager.runBackgroundSafe("Check updates") {
             val hotUpdateData = juggHotUpdateDownloader.checkHotUpdate(isPositiveCheck = true)
@@ -784,6 +795,7 @@ class JuggManager @TestOnly constructor(
     }
 
     fun setCustomServerUrl() {
+        controlPanelController.recordUserAction("Set custom server URL")
         logger.info("[options] setNewServerUrl")
         juggServer.setCustomServer()
     }
@@ -815,6 +827,7 @@ class JuggManager @TestOnly constructor(
                     isForceGradleCompile = true, isRpcMode = false,
                     compileOptions, logger,
                     progressIndicator = taskRunnerManager.currentIndicator ?: DumbProgressIndicator.INSTANCE,
+                    userActions = controlPanelController,
                 ),
                 isOnlyFetchResult = true,
             )
@@ -843,6 +856,7 @@ class JuggManager @TestOnly constructor(
     }
 
     override fun reportIssue() {
+        controlPanelController.recordUserAction("Report Issue")
         val progressDialog = ReportIssueProgressDialog("Preparing diagnostics...")
         taskRunnerManager.runBackgroundSafe("Prepare issue report") {
             try {

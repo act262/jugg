@@ -47,11 +47,13 @@ Overview combines the following information:
 
 The Logs page shows Jugg's structured core events and supports filtering by source, level, current task, and keyword.
 
-- Sources include Deploy, Runtime, and CLI / MCP.
+- Sources include IDE and CLI / MCP. Jugg business clicks and confirmation dialogs are recorded as User Action.
 - Levels include Info, Warn, and Error.
-- `Current task` keeps only events from the current task.
+- `Current task` keeps only compile/deploy task events, not click records.
 - `Follow` automatically follows new events.
 - Select an event to copy it for an issue report.
+
+After you click Quick Actions, Jugg toolbar/menu actions, or a compile confirmation dialog, the Logs page shows the matching User Action. The same text is also written to `build/jugg/log/compile_latest.log` with the fixed prefix `[UserAction]`. The Last Deploy timeline on Overview shows only the current run and does not list these clicks.
 
 Structured logs help identify the stage quickly, but they do not replace full logs. To inspect Gradle output, exception stacks, or lower-level deployment details, open `build/jugg/log/compile_latest.log`.
 

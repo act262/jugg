@@ -420,10 +420,7 @@ class JuggControlPanel(
     }
 
     private fun settingAction(label: String, help: String, text: String, action: () -> Unit): JComponent {
-        return settingRow(label, help, ActionLink(text) {
-            controller.recordUserAction(label)
-            action()
-        })
+        return settingRow(label, help, ActionLink(text) { action() })
     }
 
     private fun settingRow(label: String, help: String, control: JComponent): JComponent {
@@ -520,10 +517,7 @@ class JuggControlPanel(
         actions.forEach(::add)
     }
 
-    private fun actionLink(text: String, action: () -> Unit): ActionLink = ActionLink(text) {
-        controller.recordUserAction(text)
-        action()
-    }
+    private fun actionLink(text: String, action: () -> Unit): ActionLink = ActionLink(text) { action() }
         .also(quickActions::add)
 
     private fun verticalGap(size: Int): Component = Box.createVerticalStrut(JBUI.scale(size))

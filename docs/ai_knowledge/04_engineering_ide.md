@@ -1,6 +1,6 @@
 # 工程化：IDE 插件层
 
-> 最后核对：2026-09-08
+> 最后核对：2026-09-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -146,7 +146,7 @@ Debug executor 仅支持普通 Jugg RunConfiguration，不接管 androidTest。D
 - MCP lifecycle 固定记录 `MCP request` / `MCP response`：request detail 保留去除 `projectDir` 后的具体参数，response detail 保留 status/message/data/artifacts/errorCode；面板内容统一递归移除 `projectDir`、脱敏敏感字段并限制最大长度。
 - Model 保留 Run Configuration、selected devices、package、changed files、baseline 与 deploy history 等 Context/Health 数据，Overview 不展示 context 摘要；Settings 使用原生分组、复选框和文字 action。Quick deploy、Embed APK、Project Kotlin 与按设备 compat 只在 Gradle 注入能力开启时展示，Backup classpath 只在当前环境可用时展示；Embed APK 与 Backup classpath 保留确认流程，后者切换成功后删除 deploy history。
 - Settings 的 Deployment 按已连接设备动态展示强制 compat deploy，每次进入或再次打开 Settings 时刷新设备列表；Integrations 提供 custom server URL，Advanced 保留 mark synced / mark Gradle compiled 两个测试操作；这些入口直接复用项目级 Manager 与 Controller，不再维护独立菜单状态。
-- Overview Quick Actions 按 Build、Device、Jugg Plugin 分组；Quick Actions、Settings 文字动作、设置开关与 `Clear app data` 确认结果会记录为 User Action，Tab、日志筛选和列表选择等纯浏览操作不记录。`Clear app data` 复用通用确认弹窗，确认后才执行清除 App 数据、完整 Gradle 构建和重装。`Clear Jugg Build` 保留既有清理 Jugg 项目构建数据并重新初始化项目的行为。
+- Overview Quick Actions 按 Build、Device、Jugg Plugin 分组；Jugg 业务点击（Quick Actions、菜单/工具栏、Settings 文字动作与开关）以及编译确认框会记为 User Action。同一条文案同时写入 `compile_latest.log`（前缀 `[UserAction]`）和 Panel Logs；不占用当前 compile/deploy task。Tab、日志筛选、列表选择和打开 Panel 本身不记录。Run/Debug 仍走 compile/deploy 事件。MCP/CLI 自动确认路径不记。`Clear app data` 复用通用确认弹窗，确认后才执行清除 App 数据、完整 Gradle 构建和重装。`Clear Jugg Build` 保留既有清理 Jugg 项目构建数据并重新初始化项目的行为。
 - Build Quick Actions 最下方的 `Exec remote CMD` 只接受当前选中的远程 Jugg Configuration，不使用 full build history 或首个配置兜底。对话框固定展示 SSH target 与 `remoteProjectPath`，命令为空时只禁用 Run，不显示校验错误；支持从该目标最近 10 条命令中选择并回填，历史由 `JuggSettings` 按 `user + host + port + remoteProjectPath` 隔离。执行创建独立 `Jugg Remote Command` Run Content、专用 ProcessHandler 与 SSH client，不进入 `JuggConfigurationRunner` / `JuggRunningTask`；Stop 只取消本次命令，并在后台确认取消后以非零状态结束 Run Content。
 - `MockJuggControlPanelModel` 只通过真实 Model API 构造测试场景；Panel 在 real/mock model 之间切换时复用同一个订阅和 render 路径，不保留 UI 内置 `MockData`。
 - `JuggToolWindowFactory` 与 `OpenJuggControlPanelAction` 均实现 `DumbAware`；Panel 不依赖索引，IDE 处于 indexing / dumb mode 时仍可创建和打开。

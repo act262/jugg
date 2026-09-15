@@ -1029,7 +1029,7 @@ class RemoteGradleCompileClient(
             return IGradleCompileClient.Error.ERROR_CANCELED
         }
         if (parsedResult != null) {
-            logger.info("[Jugg][cmd-$commandId] done in ${elapsedMs}ms")
+            logger.debug("[Jugg][cmd-$commandId] done in ${elapsedMs}ms")
             return parsedResult!!
         }
         if (pollResult.isNoOutputTimeout) {

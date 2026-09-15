@@ -755,7 +755,7 @@ class JuggDeployerHelper(
                 logger.info("App is running but not deployable by Android Studio. " +
                         "Direct Deploy will restart the app after deployment.")
             } else {
-                logger.info("Android Studio deployable client unavailable, try Best-effort Direct Deploy fallback.")
+                logger.debug("Android Studio deployable client unavailable, try Best-effort Direct Deploy fallback.")
             }
         }
         if (isNeedReinstallApk || !deployStateManager.getDeployState(device).isReadyDeploy || isProjectSwitchedThisRun) {

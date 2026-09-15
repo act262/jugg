@@ -62,6 +62,9 @@ class AppSandboxExecutor(
 
     val applyChangesCapability: ApplyChangesCapability
         get() {
+            if (FORCE_ROOTLESS_COMPAT_E2E) {
+                return ApplyChangesCapability.INCOMPATIBLE
+            }
             val uid = runAsUid
             return if (uid != null && uid in AS_DEPLOYER_UID_RANGE) {
                 ApplyChangesCapability.COMPATIBLE
@@ -151,6 +154,9 @@ class AppSandboxExecutor(
     }
 
     private fun resolve(): Resolution {
+        if (FORCE_ROOTLESS_COMPAT_E2E) {
+            return unavailable("forced rootless compat E2E")
+        }
         val uid = runAsUid
         if (uid != null && uid in AS_DEPLOYER_UID_RANGE) {
             logger.debug("Apply Changes run-as capability compatible for $packageName: uid=$uid")
@@ -327,6 +333,8 @@ class AppSandboxExecutor(
     }
 
     companion object {
+        // Temporary switch for manual rootless compat end-to-end verification.
+        private const val FORCE_ROOTLESS_COMPAT_E2E = false
         private val PACKAGE_NAME_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
         private val SAFE_ABSOLUTE_PATH = Regex("/[A-Za-z0-9_./-]+")
         private val SAFE_RELATIVE_PATH = Regex("[A-Za-z0-9_./-]+")

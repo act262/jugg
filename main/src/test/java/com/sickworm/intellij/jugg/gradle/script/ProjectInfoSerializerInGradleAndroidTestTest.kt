@@ -4,6 +4,8 @@ import com.google.gson.JsonParser
 import com.sickworm.intellij.jugg.mock.StdLogger
 import com.sickworm.intellij.jugg.project.ProjectInfoSerializer
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputDir
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.JuggProjectInfo
 import com.sickworm.intellij.jugg.project.data.LibraryDependency
@@ -178,14 +180,14 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
         val buildInfos = listOf(
             ExternalBuildInfo(
                 type = ExternalBuildType.Cpp,
-                inputDirs = listOf(File("/project/native")),
+                inputDirs = listOf(cppInputDir(File("/project/native"))),
                 taskPath = ":native:mergeDebugNativeLibs",
                 assetsOutputDir = null,
                 nativeOutput = File("/project/native/build/intermediates/merged_native_libs/debug/out"),
             ),
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(File("/project/flutter")),
+                inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                 taskPath = null,
                 assetsOutputDir = null,
                 nativeOutput = null,
@@ -193,14 +195,14 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
             ),
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(File("/project/flutter")),
+                inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                 taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                 assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                 nativeOutput = File("/project/flutter/build/generated/jniLibs/copyJniLibsflutterBuildDebug"),
             ),
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(File("/project/flutter")),
+                inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                 taskPath = ":flutter:packJniLibsflutterBuildDebug",
                 assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                 nativeOutput = File("/project/flutter/build/archive/flutter-native.jar"),
@@ -232,14 +234,14 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
                 externalBuildInfos = listOf(
                     ExternalBuildInfo(
                         type = ExternalBuildType.Cpp,
-                        inputDirs = listOf(File("/project/native")),
+                        inputDirs = listOf(cppInputDir(File("/project/native"))),
                         taskPath = ":native:mergeDebugNativeLibs",
                         assetsOutputDir = null,
                         nativeOutput = File("/project/native/build/merged_native_libs"),
                     ),
                     ExternalBuildInfo(
                         type = ExternalBuildType.Flutter,
-                        inputDirs = listOf(File("/project/flutter")),
+                        inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                         taskPath = ":flutter:packJniLibsflutterBuildDebug",
                         assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                         nativeOutput = File("/project/flutter/build/archive/flutter-native.jar"),
@@ -271,7 +273,7 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
                 externalBuildInfos = listOf(
                     ExternalBuildInfo(
                         type = ExternalBuildType.Flutter,
-                        inputDirs = listOf(File("/project/flutter")),
+                        inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                         taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                         assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                         nativeOutput = File("/project/flutter/build/generated/jniLibs/copyJniLibsflutterBuildDebug"),
@@ -339,7 +341,10 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
         val buildInfos = listOf(
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(File("/project/flutter"), File("/project/shared-package")),
+                inputDirs = listOf(
+                    flutterInputDir(File("/project/flutter")),
+                    flutterInputDir(File("/project/shared-package")),
+                ),
                 taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                 assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                 nativeOutput = File("/project/flutter/build/generated/jniLibs/copyJniLibsflutterBuildDebug"),
@@ -348,7 +353,10 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
             ),
             ExternalBuildInfo(
                 type = ExternalBuildType.Cpp,
-                inputDirs = listOf(File("/project/native/src/main/cpp"), File("/project/shared")),
+                inputDirs = listOf(
+                    cppInputDir(File("/project/native/src/main/cpp")),
+                    cppInputDir(File("/project/shared")),
+                ),
                 taskPath = ":native:mergeDebugNativeLibs",
                 assetsOutputDir = null,
                 nativeOutput = File("/project/native/build/merged_native_libs"),
@@ -370,12 +378,12 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
     }
 
     @Test
-    fun `load restores snapshots written before the external build input model existed`() {
+    fun `load rejects snapshots that store external build inputs as plain paths`() {
         val tmpFile = Files.createTempFile("jugg_test_", ".json").toFile()
         val buildInfos = listOf(
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(File("/project/flutter")),
+                inputDirs = listOf(flutterInputDir(File("/project/flutter"))),
                 taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                 assetsOutputDir = File("/project/flutter/build/intermediates/flutter/debug"),
                 nativeOutput = File("/project/flutter/build/generated/jniLibs/copyJniLibsflutterBuildDebug"),
@@ -389,18 +397,14 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
             )))
             tmpFile.removeExternalBuildInputKeys()
 
-            val loaded = ProjectInfoSerializerInGradle(tmpFile).load()
-
-            val restored = loaded?.modules?.single()?.moduleInfoExceptLibraries?.externalBuildInfos?.single()
-            assertEquals(emptyList<File>(), restored?.configFiles)
-            assertEquals(emptyList<File>(), restored?.excludedDirs)
-            assertEquals(buildInfos.single().inputDirs, restored?.inputDirs)
+            // The read boundary reports no project info, so one full Gradle build rewrites it.
+            assertNull(ProjectInfoSerializerInGradle(tmpFile).load())
         } finally {
             tmpFile.delete()
         }
     }
 
-    /** Drops the external build input keys, reproducing a snapshot written before they existed. */
+    /** Rewrites the input roots back to the plain paths older Jugg snapshots persisted. */
     private fun File.removeExternalBuildInputKeys() {
         val root = JsonParser.parseString(readText()).asJsonObject
         root.getAsJsonArray("modules").forEach { module ->
@@ -408,7 +412,7 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
                 .getAsJsonArray("externalBuildInfos") ?: return@forEach
             buildInfos.forEach { element ->
                 val info = element.asJsonObject
-                info.add("sourceDirs", info.remove("inputDirs"))
+                info.add("inputDirs", JsonParser.parseString("""["/project/flutter"]""").asJsonArray)
                 listOf("configFiles", "excludedDirs").forEach { info.remove(it) }
             }
         }
@@ -470,4 +474,12 @@ class ProjectInfoSerializerInGradleAndroidTestTest {
         }
         writeText(root.toString())
     }
+    private fun flutterInputDir(directory: File) =
+        ExternalBuildInputDir(directory, setOf(ExternalBuildInputFilterRule.Dart))
+
+    private fun cppInputDir(directory: File) = ExternalBuildInputDir(
+        directory,
+        setOf(ExternalBuildInputFilterRule.CppSource, ExternalBuildInputFilterRule.CppHeader),
+    )
+
 }

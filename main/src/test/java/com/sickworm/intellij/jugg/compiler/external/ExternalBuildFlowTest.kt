@@ -12,6 +12,8 @@ import com.sickworm.intellij.jugg.compiler.ICompileContext
 import com.sickworm.intellij.jugg.compiler.JuggCompiler
 import com.sickworm.intellij.jugg.mock.SimpleCompileContext
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputDir
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.ModuleBuildPathInfo
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -968,7 +970,7 @@ class ExternalBuildFlowTest {
                 .orEmpty()
             """{"moduleName":"${target.moduleName}","moduleRootDir":"${target.moduleRoot.path}",""" +
                     """"buildVariant":"debug","previousTaskPath":"${target.taskPath}",""" +
-                    """"externalBuildInfo":{"type":"Cpp","inputDirs":["${target.moduleRoot.path}"],""" +
+                    """"externalBuildInfo":{"type":"Cpp","inputDirs":[{"directory":"${target.moduleRoot.path}","filterRules":["CppSource"]}],""" +
                     """"taskPath":"${target.taskPath}","nativeOutput":"${target.mergeOutputDir.path}",""" +
                     """"configFiles":[],"excludedDirs":[]}$strippedField}"""
         }
@@ -1030,14 +1032,17 @@ class ExternalBuildFlowTest {
             externalBuildInfos = listOf(
                 ExternalBuildInfo(
                     ExternalBuildType.Flutter,
-                    listOf(flutterRoot),
+                    listOf(ExternalBuildInputDir(flutterRoot, setOf(ExternalBuildInputFilterRule.Dart))),
                     flutterTaskPath,
                     flutterAssetsOutputDir,
                     flutterNativeOutput,
                 ),
                 ExternalBuildInfo(
                     ExternalBuildType.Cpp,
-                    listOf(cppRoot),
+                    listOf(ExternalBuildInputDir(
+                        cppRoot,
+                        setOf(ExternalBuildInputFilterRule.CppSource, ExternalBuildInputFilterRule.CppHeader),
+                    )),
                     ":app:mergeDebugNativeLibs",
                     null,
                     cppOutput,
@@ -1064,7 +1069,10 @@ class ExternalBuildFlowTest {
             buildPathInfo = ModuleBuildPathInfo(projectRoot, moduleRoot, "debug", buildDirRelativePath = "build"),
             externalBuildInfos = listOf(ExternalBuildInfo(
                 type = ExternalBuildType.Cpp,
-                inputDirs = listOf(sourceRoot),
+                inputDirs = listOf(ExternalBuildInputDir(
+                    sourceRoot,
+                    setOf(ExternalBuildInputFilterRule.CppSource, ExternalBuildInputFilterRule.CppHeader),
+                )),
                 taskPath = taskPath,
                 assetsOutputDir = null,
                 nativeOutput = output,
@@ -1077,13 +1085,14 @@ class ExternalBuildFlowTest {
         val strippedCppOutput = File(root, "build/cpp-stripped")
         val updates = """{"moduleName":"app","moduleRootDir":"${root.path}","buildVariant":"debug",""" +
                 """"previousTaskPath":":flutter:packJniLibsflutterBuildDebug","externalBuildInfo":{""" +
-                """"type":"Flutter","inputDirs":["${File(root, "flutter").path}"],""" +
+                """"type":"Flutter","inputDirs":[{"directory":"${File(root, "flutter").path}","filterRules":["Dart"]}],""" +
                 """"taskPath":":flutter:packJniLibsflutterBuildDebug",""" +
                 """"assetsOutputDir":"${flutterOutput.path}","nativeOutput":"${flutterArchive.path}",""" +
                 """"configFiles":[],"excludedDirs":[]}},""" +
                 """{"moduleName":"app","moduleRootDir":"${root.path}","buildVariant":"debug",""" +
                 """"previousTaskPath":":app:mergeDebugNativeLibs","externalBuildInfo":{"type":"Cpp",""" +
-                """"inputDirs":["${root.path}"],"taskPath":":app:mergeDebugNativeLibs",""" +
+                """"inputDirs":[{"directory":"${root.path}","filterRules":["CppSource"]}],""" +
+                """"taskPath":":app:mergeDebugNativeLibs",""" +
                 """"nativeOutput":"${cppOutput.path}","configFiles":[],"excludedDirs":[]},""" +
                 """"strippedNativeOutput":"${strippedCppOutput.path}"}"""
         val lines = mutableListOf(

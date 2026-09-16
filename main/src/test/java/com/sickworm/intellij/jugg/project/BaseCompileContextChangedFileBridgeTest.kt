@@ -7,6 +7,8 @@ import com.sickworm.intellij.jugg.deploy.DeployFileManager
 import com.sickworm.intellij.jugg.deploy.IDeployHistoryManager
 import com.sickworm.intellij.jugg.mock.TestGlobal
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputDir
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfoUpdate
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -53,7 +55,10 @@ class BaseCompileContextChangedFileBridgeTest {
     fun updateExternalBuildInfos_shouldNotFallbackToMemoryWhenPersistenceFails() {
         val module = TestGlobal.applicationModule.copy(externalBuildInfos = listOf(ExternalBuildInfo(
             type = ExternalBuildType.Cpp,
-            inputDirs = listOf(TestGlobal.applicationModule.moduleRootDir),
+            inputDirs = listOf(ExternalBuildInputDir(
+                TestGlobal.applicationModule.moduleRootDir,
+                setOf(ExternalBuildInputFilterRule.CppSource, ExternalBuildInputFilterRule.CppHeader),
+            )),
             taskPath = ":app:oldNativeTask",
             assetsOutputDir = null,
             nativeOutput = File(TestGlobal.applicationModule.moduleRootDir, "build/old-native"),

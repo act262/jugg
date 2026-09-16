@@ -214,7 +214,7 @@ class FileChangesHandler(
         buildDirs: List<File>,
     ): Scope {
         val externalSourceDirs = compiledModules.flatMap { module ->
-            module.externalBuildInfos.flatMap { it.inputDirs }
+            module.externalBuildInfos.flatMap { it.inputDirs }.map { it.directory }
         }
         val scanRoots = (listOf(projectDir) + compiledModules.map { it.moduleRootDir } + externalSourceDirs)
             .map { it.normalizedPath }
@@ -243,10 +243,10 @@ class FileChangesHandler(
         if (file.isInBuildDir) {
             return null
         }
-        // A removed external build input stays visible so the incremental pre-check can require a
-        // full Gradle build; its artifacts cannot be removed from the APK incrementally.
+        // A removed path has no input type to restore: external build inputs describe current
+        // sources, and removing one from the APK needs a full Run instead of an incremental build.
         if (!file.exists()) {
-            return checkExternalBuildSource(file)
+            return null
         }
 
         checkBuildFiles(file)?.let {
@@ -277,9 +277,11 @@ class FileChangesHandler(
             return null
         }
         val target = resolveExternalBuilds(getModules(), file).firstOrNull() ?: return null
-        val baseDir = target.buildInfo.inputDirs.firstOrNull { sourceDir ->
-            file.pathEquals(sourceDir) || file.isChild(sourceDir)
-        } ?: file.absoluteFile.normalize().parentFile ?: return null
+        // The resolved input directory accepted this file, so it is the base dir even when a wider
+        // root of the same build also covers the path. A configuration file has no input directory.
+        val baseDir = target.matchedInputDir?.directory
+            ?: file.absoluteFile.normalize().parentFile
+            ?: return null
         return ChangedFile(CompileFile.Type.ExternalBuildSource, file, baseDir, target.module)
     }
 

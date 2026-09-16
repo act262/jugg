@@ -4,7 +4,9 @@ import com.intellij.openapi.diagnostic.Logger
 import com.sickworm.intellij.jugg.compiler.CompileStatusHolder
 import com.sickworm.intellij.jugg.compiler.CompileTask
 import com.sickworm.intellij.jugg.compiler.isWindows
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfoRequestItem
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import org.junit.Rule
 import org.junit.Test
@@ -125,7 +127,7 @@ class ExternalBuildTaskRunnerTest {
                 done
                 mkdir -p "${'$'}output"
                 cat > "${'$'}output/result.json" <<JSON
-                {"invocationId":"${'$'}invocation","updates":[{"moduleName":"app","moduleRootDir":"${moduleRoot.path}","buildVariant":"debug","previousTaskPath":":app:mergeDebugNativeLibs","externalBuildInfo":{"type":"Cpp","inputDirs":["${inputDir.path}"],"taskPath":":app:mergeDebugNativeLibs","nativeOutput":"${nativeOutput.path}","configFiles":[],"excludedDirs":[]}}]}
+                {"invocationId":"${'$'}invocation","updates":[{"moduleName":"app","moduleRootDir":"${moduleRoot.path}","buildVariant":"debug","previousTaskPath":":app:mergeDebugNativeLibs","externalBuildInfo":{"type":"Cpp","inputDirs":[{"directory":"${inputDir.path}","filterRules":["CppSource"]}],"taskPath":":app:mergeDebugNativeLibs","nativeOutput":"${nativeOutput.path}","configFiles":[],"excludedDirs":[]}}]}
                 JSON
             """.trimIndent())
             setExecutable(true)
@@ -150,7 +152,11 @@ class ExternalBuildTaskRunnerTest {
         )
 
         assertTrue(result.isSuccess, logger.messages.joinToString("\n"))
-        assertEquals(inputDir, result.updates.single().externalBuildInfo.inputDirs.single())
+        assertEquals(inputDir, result.updates.single().externalBuildInfo.inputDirs.single().directory)
+        assertEquals(
+            setOf(ExternalBuildInputFilterRule.CppSource),
+            result.updates.single().externalBuildInfo.inputDirs.single().filterRules,
+        )
         assertEquals(nativeOutput, result.updates.single().externalBuildInfo.nativeOutput)
     }
 
@@ -236,7 +242,7 @@ class ExternalBuildTaskRunnerTest {
                 done
                 mkdir -p "${'$'}output"
                 cat > "${'$'}output/result.json" <<JSON
-                {"invocationId":"${'$'}invocation","updates":[{"moduleName":"app","moduleRootDir":"${moduleRoot.path}","buildVariant":"debug","previousTaskPath":":app:mergeDebugNativeLibs","externalBuildInfo":{"type":"Cpp","inputDirs":["${moduleRoot.path}"],"taskPath":":app:mergeDebugNativeLibs","nativeOutput":"${moduleRoot.path}","configFiles":[],"excludedDirs":[]}$strippedField}]}
+                {"invocationId":"${'$'}invocation","updates":[{"moduleName":"app","moduleRootDir":"${moduleRoot.path}","buildVariant":"debug","previousTaskPath":":app:mergeDebugNativeLibs","externalBuildInfo":{"type":"Cpp","inputDirs":[{"directory":"${moduleRoot.path}","filterRules":["CppSource"]}],"taskPath":":app:mergeDebugNativeLibs","nativeOutput":"${moduleRoot.path}","configFiles":[],"excludedDirs":[]}$strippedField}]}
                 JSON
             """.trimIndent())
             setExecutable(true)

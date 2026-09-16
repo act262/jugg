@@ -43,11 +43,49 @@ data class ComposeResourceDirectory(
     val directory: File,
 )
 
+/**
+ * One recursive external build input root with the file kinds accepted below it. The rule set is
+ * never empty, and the rules of one directory are alternatives: a file matching any rule matches
+ * the directory. Distinct rule sets of the same directory are kept because they still describe
+ * which kind of input produced that root.
+ */
+data class ExternalBuildInputDir(
+    val directory: File,
+    val filterRules: Set<ExternalBuildInputFilterRule>,
+)
+
+/**
+ * Reason reported when a project info snapshot stores external build inputs in a shape this
+ * version can not read. The read boundary keeps the message and lets one full Gradle build rewrite
+ * the snapshot instead of guessing the file kinds of the old roots.
+ */
+val EXTERNAL_BUILD_INPUT_SCHEMA_ERROR =
+    "Jugg external build input schema is not compatible with this version, " +
+            "the project info will be rebuilt by a full Gradle build"
+
+/** File kinds accepted below one recursive external build input root. */
+enum class ExternalBuildInputFilterRule {
+    /** Flutter and Dart package sources, matched by `.dart` extension. */
+    Dart,
+
+    /** Flutter resources declared by the pubspec/l10n configuration or exposed by the Flutter task. */
+    FlutterAsset,
+
+    /** C/C++ sources of an `externalNativeBuild` configuration root. */
+    CppSource,
+
+    /** C/C++ headers of a configuration root, an include root or a metadata header source. */
+    CppHeader,
+
+    /** A concrete native source directory confirmed by the native build metadata. */
+    NativeDirectory,
+}
+
 /** External Gradle build discovered for sources that Jugg cannot compile directly. */
 data class ExternalBuildInfo(
     val type: ExternalBuildType,
-    /** Recursive trigger roots: any non-excluded file below them belongs to this external build. */
-    val inputDirs: List<File>,
+    /** Recursive trigger roots with the file kinds each root accepts. */
+    val inputDirs: List<ExternalBuildInputDir>,
     /** Task producing the final native artifacts: a Flutter pack/copy task or a C++ merge task. */
     val taskPath: String?,
     /** Directory holding Flutter `flutter_assets`; null for external builds without assets output. */

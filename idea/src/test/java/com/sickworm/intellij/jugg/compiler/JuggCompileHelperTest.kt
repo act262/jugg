@@ -27,6 +27,8 @@ import com.sickworm.intellij.jugg.project.IFileChangesHandler
 import com.sickworm.intellij.jugg.project.JuggPathManager
 import com.sickworm.intellij.jugg.project.TaskRunnerManager
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputDir
+import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import com.sickworm.intellij.jugg.project.dependency.GradleProjectInfoLocalFetchManager
@@ -348,7 +350,7 @@ class JuggCompileHelperTest {
         val module = ModuleInfo.virtualModule.copy(externalBuildInfos = listOf(
             ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(flutterRoot),
+                inputDirs = listOf(flutterInputDir(flutterRoot)),
                 taskPath = null,
                 assetsOutputDir = null,
                 nativeOutput = null,
@@ -375,7 +377,7 @@ class JuggCompileHelperTest {
             moduleRootDir = File(sharedRoot, "supported"),
             externalBuildInfos = listOf(ExternalBuildInfo(
                 type = ExternalBuildType.Cpp,
-                inputDirs = listOf(sharedRoot),
+                inputDirs = listOf(cppInputDir(sharedRoot)),
                 taskPath = ":supported:mergeDebugNativeLibs",
                 assetsOutputDir = null,
                 nativeOutput = File(sharedRoot, "build/supported"),
@@ -386,7 +388,7 @@ class JuggCompileHelperTest {
             moduleRootDir = File(sharedRoot, "unsupported"),
             externalBuildInfos = listOf(ExternalBuildInfo(
                 type = ExternalBuildType.Cpp,
-                inputDirs = listOf(sharedRoot),
+                inputDirs = listOf(cppInputDir(sharedRoot)),
                 taskPath = null,
                 assetsOutputDir = null,
                 nativeOutput = null,
@@ -425,7 +427,7 @@ class JuggCompileHelperTest {
             externalBuildInfos = listOf(
                 ExternalBuildInfo(
                     type = ExternalBuildType.Flutter,
-                    inputDirs = listOf(File(flutterRoot, "lib")),
+                    inputDirs = listOf(flutterInputDir(File(flutterRoot, "lib"))),
                     taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                     assetsOutputDir = File(flutterRoot, "build/flutter"),
                     nativeOutput = File(flutterRoot, "build/jniLibs"),
@@ -462,7 +464,7 @@ class JuggCompileHelperTest {
             externalBuildInfos = listOf(
                 ExternalBuildInfo(
                     type = ExternalBuildType.Flutter,
-                    inputDirs = listOf(flutterRoot),
+                    inputDirs = listOf(flutterInputDir(flutterRoot)),
                     taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                     assetsOutputDir = File(flutterRoot, "build/flutter"),
                     nativeOutput = File(flutterRoot, "build/jniLibs"),
@@ -496,7 +498,7 @@ class JuggCompileHelperTest {
             externalBuildInfos = listOf(
                 ExternalBuildInfo(
                     type = ExternalBuildType.Cpp,
-                    inputDirs = listOf(nativeRoot),
+                    inputDirs = listOf(cppInputDir(nativeRoot)),
                     taskPath = ":app:mergeDebugNativeLibs",
                     assetsOutputDir = null,
                     nativeOutput = File(nativeRoot, "build/merged"),
@@ -533,7 +535,7 @@ class JuggCompileHelperTest {
             name = "app",
             externalBuildInfos = listOf(ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(flutterRoot),
+                inputDirs = listOf(flutterInputDir(flutterRoot)),
                 taskPath = ":app:compileFlutterBuildDebug",
                 assetsOutputDir = File(flutterRoot, "build/flutter"),
                 nativeOutput = null,
@@ -569,7 +571,7 @@ class JuggCompileHelperTest {
             name = "app",
             externalBuildInfos = listOf(ExternalBuildInfo(
                 type = ExternalBuildType.Flutter,
-                inputDirs = listOf(flutterRoot),
+                inputDirs = listOf(flutterInputDir(flutterRoot)),
                 taskPath = ":flutter:copyJniLibsflutterBuildDebug",
                 assetsOutputDir = File(flutterRoot, "build/flutter"),
                 nativeOutput = File(flutterRoot, "build/jniLibs"),
@@ -1225,4 +1227,12 @@ class JuggCompileHelperTest {
         val options: JuggGradleCompileOptions,
         val juggRunningTaskStatusManager: JuggRunningTaskStatusManager,
     )
+    private fun flutterInputDir(directory: File) =
+        ExternalBuildInputDir(directory, setOf(ExternalBuildInputFilterRule.Dart))
+
+    private fun cppInputDir(directory: File) = ExternalBuildInputDir(
+        directory,
+        setOf(ExternalBuildInputFilterRule.CppSource, ExternalBuildInputFilterRule.CppHeader),
+    )
+
 }

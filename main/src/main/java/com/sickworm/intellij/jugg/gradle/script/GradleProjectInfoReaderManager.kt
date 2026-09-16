@@ -54,6 +54,7 @@ class GradleProjectInfoReaderManager(
             } else {
                 writeProjectInfoFile(projectInfo)
                 writeIncludeProjectsFile()
+                refreshNativeStripCache(projectInfo)
                 GradleDependencyDiffer(rootProject, projectInfo, ideProjectDir).deleteTmpProjectInfos()
             }
 
@@ -331,6 +332,47 @@ class GradleProjectInfoReaderManager(
     }
 
     /**
+     * Caches the APK owner strip configuration of every configured Application and Dynamic Feature
+     * module. A later external invocation may run with Gradle configuration on demand, where the APK
+     * owner is never configured and its strip task can not be read, so a normal Gradle build has to
+     * publish the configuration instead of letting that invocation configure the owner.
+     */
+    private fun refreshNativeStripCache(projectInfo: JuggProjectInfo) {
+        try {
+            val entries = projectInfo.modules.values.mapNotNull { module ->
+                if (module.moduleType != ModuleInfo.Type.Application &&
+                        module.moduleType != ModuleInfo.Type.DynamicFeature) {
+                    return@mapNotNull null
+                }
+                readNativeStripConfigEntry(module)
+            }.distinctBy { it.moduleRootDir.absolutePath + "|" + it.variant }
+            NativeStripConfigCache(juggPathManager.localClasspathStoragePathManager.nativeStripDir).write(entries)
+        } catch (e: Throwable) {
+            // The cache is an auxiliary capability: a failure must not break project info reading, and
+            // the external invocation reports the missing configuration explicitly instead.
+            println("Jugg: native strip cache refresh failed: $e")
+        }
+    }
+
+    private fun readNativeStripConfigEntry(module: ModuleInfo): NativeStripConfigEntry? {
+        val project = rootProject.allprojects.firstOrNull {
+            it.projectDir.absoluteFile.normalize() == module.moduleRootDir.absoluteFile.normalize()
+        } ?: return null
+        val stripTaskName = "strip${module.buildVariant.camelCompat}DebugSymbols"
+        val stripTask = project.tasks.findByName(stripTaskName) ?: run {
+            println("Jugg: skip native strip cache for ${project.path}: $stripTaskName was not found")
+            return null
+        }
+        val keepDebugSymbols = readStripKeepPatterns(stripTask)
+        val stripExecutables = readStripExecutables(stripTask)
+        if (keepDebugSymbols == null || stripExecutables == null) {
+            println("Jugg: skip native strip cache for ${project.path}: strip configuration is unreadable")
+            return null
+        }
+        return NativeStripConfigEntry(project.projectDir, module.buildVariant, keepDebugSymbols, stripExecutables)
+    }
+
+    /**
      * Reproduces AGP's single-file strip for one C++ build and returns the directory holding the
      * stripped `<abi>` native libraries of this invocation, which is the base directory expected by
      * the external build compiler outputs.
@@ -354,16 +396,9 @@ class GradleProjectInfoReaderManager(
         if (nativeOutput == null || !nativeOutput.isDirectory) {
             throw IllegalStateException("External native output is unavailable: $nativeOutput")
         }
-        val ownerProject = rootProject.allprojects.firstOrNull {
-            it.projectDir.absoluteFile.normalize() == ownerRootDir
-        } ?: throw IllegalStateException("APK owner project not found for $ownerRootDir")
-        val stripTaskName = "strip${ownerVariant.camelCompat}DebugSymbols"
-        val stripTask = ownerProject.tasks.findByName(stripTaskName)
-            ?: throw IllegalStateException("App strip task $stripTaskName was not found in ${ownerProject.path}")
-        val keepMatchers = readStripKeepPatterns(stripTask)?.map { compileKeepDebugSymbolsPattern(it) }
-            ?: throw IllegalStateException("App strip keepDebugSymbols is unreadable: ${stripTask.path}")
-        val stripExecutables = readStripExecutables(stripTask)
-            ?: throw IllegalStateException("App strip executable finder is unreadable: ${stripTask.path}")
+        val stripConfig = resolveNativeStripConfig(ownerRootDir, ownerVariant)
+        val keepMatchers = stripConfig.keepDebugSymbols.map { compileKeepDebugSymbolsPattern(it) }
+        val stripExecutables = stripConfig.stripExecutables
 
         val stripRoot = File(File(invocationOutputDir, "native"), externalNativeOutputKey(request))
         stripRoot.deleteRecursively()
@@ -384,8 +419,31 @@ class GradleProjectInfoReaderManager(
             verifyStrippedNativeFile(tempOutput, keepPath)
             publishAtomically(tempOutput, output)
         }
-        println("Jugg: stripped ${ownerProject.path}:$stripTaskName output for ${request.taskPath} into $stripRoot")
+        println("Jugg: stripped output for ${request.taskPath} into $stripRoot")
         return stripRoot
+    }
+
+    /**
+     * Resolves the APK owner strip configuration. The cached configuration is preferred because this
+     * invocation may run with Gradle configuration on demand, where the owner is not configured and
+     * its strip task can not be read. A miss falls back to one live read, which keeps the existing
+     * contract for a configured owner instead of guessing a strip tool.
+     */
+    private fun resolveNativeStripConfig(ownerRootDir: File, ownerVariant: String): NativeStripConfig {
+        NativeStripConfigCache(juggPathManager.localClasspathStoragePathManager.nativeStripDir)
+            .read(ownerRootDir, ownerVariant)?.let { return it }
+        val stripTaskName = "strip${ownerVariant.camelCompat}DebugSymbols"
+        val ownerProject = rootProject.allprojects.firstOrNull {
+            it.projectDir.absoluteFile.normalize() == ownerRootDir
+        } ?: throw IllegalStateException("APK owner project not found for $ownerRootDir")
+        val stripTask = ownerProject.tasks.findByName(stripTaskName)
+            ?: throw IllegalStateException("App strip task $stripTaskName was not found in " +
+                    "${ownerProject.path}, run a normal Gradle build to refresh the Jugg native strip cache")
+        val keepDebugSymbols = readStripKeepPatterns(stripTask)
+            ?: throw IllegalStateException("App strip keepDebugSymbols is unreadable: ${stripTask.path}")
+        val stripExecutables = readStripExecutables(stripTask)
+            ?: throw IllegalStateException("App strip executable finder is unreadable: ${stripTask.path}")
+        return NativeStripConfig(keepDebugSymbols, stripExecutables)
     }
 
     /** Stable directory name for one requested C++ target inside this invocation's output directory. */

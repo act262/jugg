@@ -47,6 +47,7 @@
 | `build/jugg/database/project_infos.db/gradle_include_builds.txt` | Gradle init script | include build project info 文件列表 |
 | `build/jugg/database/project_infos.db/is_dirty` | project info 管理 | 标记需要更新 project info |
 | `build/jugg/classpath/` | Gradle/full build fetch | 本地 classpath、APK、library backup、embedded APK |
+| `build/jugg/classpath/native_strip/` | Gradle init script（完整构建写入） | APK owner 的 `keepDebugSymbols` 与 ABI strip 工具缓存，含 `config.json` 与 `tools/` 内随基线迁移的工具副本；位于 `classpath/root` 之外，不进入 Java/Kotlin classpath |
 | `~/.jugg/library_test_build_records` | androidTest history | 记录 self-targeting library Test APK 构建历史 |
 
 `GradleProjectInfoReaderManager` 优先读取 Gradle property `jugg.projectDir` 作为 IDE project dir；当 Gradle root 与 IDE project root 不一致时，不能直接用 `rootProject.rootDir` 推断 Jugg 文件位置。
@@ -113,6 +114,7 @@ IDE / Gradle compile 触发 project info 更新
      校验 Compose resource 任务并读取 generator/resource directory metadata
      读取当前 variant 的 Flutter compile/pack Jar task、mergeNativeLibs task、外部源码根、输出目录和 native archive
   -> 写入 gradle_project_infos.json
+     Application / Dynamic Feature 已配置，读取各自当前 variant 的 strip 配置写入 classpath/native_strip
      include build 额外写入 gradle_include_builds.txt
 ```
 
@@ -235,6 +237,7 @@ APK 拉取全部成功后，`LocalGradleCompileClient` / `RemoteGradleCompileCli
 - `composeResourceInfo` 已按上述链路同步并在 merge 时优先保留 Gradle 值；`main/src/main/resources/gradle/readProjectInfo.gradle.kts` 也必须与 `gradle/script` 生成源一致。
 - `ExternalBuildInfo` 的 native 输出只保留一个字段，禁止再按容器类型（archive / directory）增加字段。它在 `ProjectInfoSerializerInGradle.parseExternalBuildInfos`、`ProjectInfoSerializer.restoreExternalBuildOutputs` 和 `CmdLineContextManager` 的工程路径搬迁中同步；Gradle（Groovy）与 IDE（Gson）两条读取链都在读取边界把旧快照恢复成新语义：旧 Flutter 的 `outputDir` 是 assets 输出、`nativeLibsArchive` 或上一轮本地实现写入的 `nativeLibsDir` 是 native 输出，旧 C++ 的 `outputDir` 是 native 输出。恢复是确定性的，不删库、不提升序列化版本、也不丢字段。`isSupported` 对 Flutter 要求 assets 输出与 native 输出同时存在，对 C++ 只要求 native 输出存在。Flutter 3.x 的 copy task 属于 AGP `addGeneratedSourceDirectory` 注册的产物任务，reader 只读取它的 `destinationDir` 与 `compileFlutterBuild<Variant>` 依赖，不读取 `intermediateDir` 之外的裸 Flutter 中间目录。
 - `buildReadProjectInfoScript.gradle` 必须收集 init script 内嵌源码的全部非 Gradle classpath 依赖，并按声明依赖排序；`JuggPathManager` 引用 `JuggGlobalPathManager` 时，两者必须同时收集且后者排在前面，避免生成的独立 KTS 编译失败。
+- `build/jugg/classpath/native_strip` 是可迁移的完整构建工具链基线，不是运行状态数据库：完整 Gradle 构建按标准化 `moduleRootDir + variant` 写入 APK owner 的 `keepDebugSymbols` 与 ABI strip 工具，并把这些工具复制到 `tools/` 内保留可执行属性；工具先写完再原子发布 `config.json`，未被引用的旧工具随后 Best-effort 清理。读取时优先使用随基线复制的 `backupPath`，`sourcePath` 只用于本机降级与诊断，因此流水线复制基线时必须一并保存整个 `native_strip/` 目录（若只保存 `classpath/root`、`apk`、`libraries`、`embedded_apk` 白名单，需要同步加入），并且复制方式必须保留文件属性；丢失可执行位的备份工具会被判为不可用。该缓存不进入 `Variant` / `ModuleInfo` / `ExternalBuildInfo` 序列化模型，`Clear Jugg Build` 删除 `build/jugg` 时自然清除，不新增独立清理入口。
 - trailing-comma 清理分两步：先删除 `)` 前尾逗号并保留 `) {` 与行尾注释；再删除嵌套调用留下的 `),\n)` 外层尾逗号，且不得删除 `),\nnextArg` 这种非末参数分隔逗号。否则 Gradle 5/6（Kotlin DSL language version < 1.4）会因残留 `arg),` 脚本编译失败。
 - 改动会进入 `buildReadProjectInfoScript` 的输入时（`gradle/script/**`、被内嵌的 `project/data/**`、`DependencyDiffResult`、生成器本身），验证矩阵必须包含生成脚本**语法**回归，不能只用 Gradle 7/9 功能 compat 代替：默认跑 `ReadProjectInfoScriptContentTest`（含尾逗号等生成契约）；有 JDK 条件时再跑 `ReadProjectInfoGradle5CompatTest` / `ReadProjectInfoGradle6CompatTest`。Gradle 7+ 已接受尾逗号，测过 7/9 不等于语法兼容仍成立。细节与 owner 见 `06_testing.md` §7.4。
 - Project info 只记录选中 Android Kotlin task 为本轮增量编译暴露的 fragment graph，不构建项目全部 target 的完整 Kotlin source-set 依赖图，也不记录 deletion 图或 generated source cache。
@@ -278,6 +281,7 @@ APK 拉取全部成功后，`LocalGradleCompileClient` / `RemoteGradleCompileCli
 | Compose 默认/自定义资源目录未识别 | `GradleProjectInfoReader.getComposeResourceInfo()`、`readComposeResourceDirectories()` 与序列化后的 `composeResourceInfo` |
 | Compose resource API 不受支持 | task 类型集合与必要属性、task class 的 code source、generator class/method/constructor 结构及 `unsupportedReason` |
 | `-I readProjectInfo.gradle.kts` 报 trailing commas / Expecting an argument | `buildReadProjectInfoScript.gradle` 尾逗号清理；用 `ReadProjectInfoScriptContentTest` 与 Gradle 5/6 compat 回归，见 `06_testing.md` §7.4 |
+| C++ 增量报 `App strip task strip<X>DebugSymbols was not found in :app` | 该 invocation 在 Configuration on Demand 下未配置 APK owner。检查 `build/jugg/classpath/native_strip/config.json` 是否有该 `moduleRootDir + variant` 的唯一 entry、entry 引用的 `backupPath` 或 `sourcePath` 是否仍可执行；缺失时执行一次完整 Gradle 构建刷新缓存，不要为读配置把 owner 的 strip/merge task 加入本轮任务图 |
 | Dart/C/C++/Flutter asset/CMake 配置修改没有触发外部构建 | 先从 `compile_latest.log` 确认文件是否到达 before-filter/ChangedFile；再检查 `externalBuildInfos.inputDirs` 是否覆盖该路径、`configFiles`/`excludedDirs`、task/native 输出元数据、当前 variant 的 Flutter/native task，以及 `FileChangesHandler` 是否已收到 compile context 更新。若外部 task 已执行但新目录仍不触发，继续检查 `juggCollectExternalBuildInfo` 是否产出完整 invocation 结果、定向 project-info merge 是否成功。 |
 
 ---

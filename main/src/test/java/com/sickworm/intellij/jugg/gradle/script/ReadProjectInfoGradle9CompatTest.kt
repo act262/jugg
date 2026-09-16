@@ -618,6 +618,93 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
         }
     }
 
+    /**
+     * Verifies the configuration-on-demand regression of report 75046b19 against a real AGP project:
+     * the native build lives in a library module, the APK owner `:app` is not part of the external
+     * invocation, and the collector still strips the library output from the configuration a previous
+     * full Gradle build cached.
+     */
+    @Test
+    fun generatedScript_shouldStripNativeOutputWhenApkOwnerIsNotConfigured() {
+        assumeNativeToolchain()
+        val fixtureDir = Files.createTempDirectory("jugg_gradle_fixture_native_strip_ondemand").toFile()
+        try {
+            File(System.getProperty("user.dir"), "src/test/assets/android-app-native-ondemand")
+                .copyRecursively(fixtureDir, overwrite = true)
+            createMinimalJar(File(fixtureDir, ".gradle/jugg/jugg-runtime.jar"))
+            writeSdkLocalProperties(fixtureDir)
+            writeWrapper(fixtureDir, gradleVersion)
+            val initScript = copyGeneratedInitScript(fixtureDir)
+            // Gradle resolves its project directories, so the request must use the same real paths.
+            val appDir = File(fixtureDir, "app").canonicalFile
+            val libDir = File(fixtureDir, "nativelib").canonicalFile
+
+            val fullBuild = runGradle(
+                fixtureDir,
+                ":app:assembleDebug",
+                "-I", initScript.absolutePath,
+                "--console=plain",
+                "--no-daemon",
+            )
+            assertEquals(0, fullBuild.exitCode, "Full Gradle build failed.\n${fullBuild.output}")
+            val cacheDir = File(fixtureDir, "build/jugg/classpath/native_strip")
+            assertTrue(
+                File(cacheDir, "config.json").isFile,
+                "A full Gradle build must cache the APK owner strip configuration.\n${fullBuild.output}",
+            )
+
+            val invocationDir = File(fixtureDir, "invocation")
+            val requestFile = File(invocationDir, "request.json").apply {
+                parentFile.mkdirs()
+                writeText(
+                    """{"invocationId":"invocation-1","items":[{"moduleName":"nativelib",""" +
+                            """"moduleRootDir":"${libDir.path}","buildVariant":"debug",""" +
+                            """"taskPath":":nativelib:mergeDebugNativeLibs","type":"Cpp",""" +
+                            """"apkOwnerModuleRootDir":"${appDir.path}","apkOwnerBuildVariant":"debug"}]}""",
+                )
+            }
+            val outputDir = File(invocationDir, "output")
+            val collectResult = runGradle(
+                fixtureDir,
+                ":nativelib:mergeDebugNativeLibs",
+                GradleProjectInfoReaderManager.COLLECT_EXTERNAL_BUILD_INFO_TASK_PATH,
+                "-I", initScript.absolutePath,
+                "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_REQUEST}=${requestFile.path}",
+                "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_OUTPUT}=${outputDir.path}",
+                "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_INVOCATION}=invocation-1",
+                "--console=plain",
+                "--no-daemon",
+            )
+            assertEquals(
+                0,
+                collectResult.exitCode,
+                "The collector must strip native output without configuring the APK owner.\n${collectResult.output}",
+            )
+            assertFalse(
+                collectResult.output.contains("> Task :app:stripDebugDebugSymbols") ||
+                        collectResult.output.contains("> Task :app:mergeDebugNativeLibs"),
+                "The collector must not execute the app strip or app merge task.\n${collectResult.output}",
+            )
+
+            val update = readSingleUpdate(outputDir)
+            val strippedRoot = File(update["strippedNativeOutput"] as String)
+            val strippedLibs = strippedRoot.walkTopDown().filter { it.extension == "so" }.toList()
+            assertEquals(1, strippedLibs.size, "stripped libs: $strippedLibs")
+            assertEquals("arm64-v8a", strippedLibs.single().parentFile.name, "compiled output layout changed")
+            // The full build already stripped the library output as part of the APK owner strip task.
+            val agpStripped = File(fixtureDir, "app/build/intermediates/stripped_native_libs")
+                .walkTopDown()
+                .single { it.isFile && it.name == strippedLibs.single().name }
+            assertEquals(
+                agpStripped.readBytes().toList(),
+                strippedLibs.single().readBytes().toList(),
+                "Jugg stripped output must match the AGP strip output of the full build",
+            )
+        } finally {
+            fixtureDir.deleteRecursively()
+        }
+    }
+
     /** The native fixture needs the pinned NDK and a CMake installation next to the Android SDK. */
     private fun assumeNativeToolchain() {
         val sdkDir = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")

@@ -391,6 +391,28 @@ class GradleProjectInfoReaderExternalBuildTest {
     }
 
     @Test
+    fun `resolves relative CMake target sources from the codemodel source root`() {
+        val project = ProjectBuilder.builder().withProjectDir(temporaryFolder.root).build()
+        val moduleRoot = temporaryFolder.root.canonicalFile
+        val cmakeDir = File(moduleRoot, "cmake")
+        writeFile(File(cmakeDir, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.22)\n")
+        project.extensions.add("android", TestAndroidExtension())
+        project.tasks.create("mergeDebugNativeLibs", TestNativeMergeTask::class.java).apply {
+            outputDir = temporaryFolder.newFolder("merged-native-relative-source")
+        }
+        writeCmakeReply(
+            File(moduleRoot, ".cxx/cmake/debug/arm64-v8a"), "debug",
+            sources = listOf("shared/shared_value.cc"),
+            includes = emptyList(),
+            sourceRoot = cmakeDir,
+        )
+
+        val info = readExternalBuildInfos(project, appModuleInfo(moduleRoot)).single()
+
+        assertEquals(setOf(NativeDirectory), info.ruleSetsAt(File(cmakeDir, "shared")).single())
+    }
+
+    @Test
     fun `keeps every rule set of one directory and never compacts a child into its parent`() {
         val project = ProjectBuilder.builder().withProjectDir(temporaryFolder.root).build()
         val moduleRoot = temporaryFolder.root.canonicalFile
@@ -499,12 +521,19 @@ class GradleProjectInfoReaderExternalBuildTest {
     private fun Iterable<File>.canonical(): List<File> = map { it.canonicalFile }
 
     /** Writes a minimal CMake File API reply holding one target with the requested sources and includes. */
-    private fun writeCmakeReply(replyParent: File, variant: String, sources: List<String>, includes: List<String>) {
+    private fun writeCmakeReply(
+        replyParent: File,
+        variant: String,
+        sources: List<String>,
+        includes: List<String>,
+        sourceRoot: File? = null,
+    ) {
         val replyDir = File(replyParent, ".cmake/api/v1/reply")
         replyDir.mkdirs()
+        val paths = sourceRoot?.let { "\"paths\":{\"source\":\"${it.path}\"}," }.orEmpty()
         writeFile(
             File(replyDir, "codemodel-v2-$variant.json"),
-            """{"configurations":[{"name":"$variant","targets":[{"name":"app","jsonFile":"target-app-$variant.json"}]}]}""",
+            """{$paths"configurations":[{"name":"$variant","targets":[{"name":"app","jsonFile":"target-app-$variant.json"}]}]}""",
         )
         val sourceJson = sources.joinToString(",") { """{"path":"$it"}""" }
         val includeJson = includes.joinToString(",") { """{"path":"$it"}""" }

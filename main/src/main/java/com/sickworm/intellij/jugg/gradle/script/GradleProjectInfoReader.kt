@@ -379,7 +379,10 @@ class GradleProjectInfoReader(
 
         TraceLogger.start("getRuntime")
         return try {
-            getDependenciesByConfig(project, filterName, isAndroidDepend = true)
+            // Only library dependencies are consumed here, and the discarded module dependencies are
+            // what forces the legacy ResolvedConfiguration walk. That walk resolves the runtime
+            // artifact graph of the whole APK root and costs seconds per APK owner module.
+            getDependenciesByConfig(project, filterName, isAndroidDepend = true, isNeedProjectDependencies = false)
                 .filterIsInstance<LibraryDependency>()
         } finally {
             TraceLogger.end("getRuntime")
@@ -716,7 +719,8 @@ class GradleProjectInfoReader(
         return guessBuildVariant(project.standardModuleName, variants, taskNames, startTaskNames)
     }
 
-    private fun getDependenciesByConfig(project: Project, filterName: String, isAndroidDepend: Boolean, isNeedResolve: Boolean = true, isGetByNewWay: Boolean = false): List<Dependency> {
+    private fun getDependenciesByConfig(project: Project, filterName: String, isAndroidDepend: Boolean, isNeedResolve: Boolean = true, isGetByNewWay: Boolean = false,
+                                        isNeedProjectDependencies: Boolean = true): List<Dependency> {
         val result = mutableMapOf<String, Dependency>()
         val allNames = project.configurations.names
         val names = allNames.filter { filterConfigs(it, filterName) }
@@ -731,7 +735,7 @@ class GradleProjectInfoReader(
                 val subResult = if (isGetByNewWay) {
                     doGetDependenciesNew(configuration)
                 } else {
-                    doGetDependencies(configuration, isAndroidDepend)
+                    doGetDependencies(configuration, isAndroidDepend, isNeedProjectDependencies)
                 }
                 totalReadArtifacts += subResult.size
                 resolveArtifacts += configuration.allDependencies.size
@@ -1411,11 +1415,13 @@ class GradleProjectInfoReader(
         }
     }
 
-    private fun doGetDependencies(resolvedConfiguration: Configuration, isAndroidDepend: Boolean): List<Dependency> {
+    private fun doGetDependencies(resolvedConfiguration: Configuration, isAndroidDepend: Boolean, isNeedProjectDependencies: Boolean = true): List<Dependency> {
         val result = mutableSetOf<Dependency>()
         // resolve project dependency here, because project dependency won't return by artifactView
         // if it's build directory is deleted
-        getProjectDependencies(result, resolvedConfiguration.resolvedConfiguration.firstLevelModuleDependencies)
+        if (isNeedProjectDependencies) {
+            getProjectDependencies(result, resolvedConfiguration.resolvedConfiguration.firstLevelModuleDependencies)
+        }
 
         val resolvedArtifacts = mutableSetOf<ResolvedArtifactResult>()
 

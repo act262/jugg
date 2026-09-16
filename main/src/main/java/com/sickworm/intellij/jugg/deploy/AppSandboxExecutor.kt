@@ -1,6 +1,7 @@
 package com.sickworm.intellij.jugg.deploy
 
 import com.intellij.openapi.diagnostic.Logger
+import com.sickworm.intellij.jugg.ide.logic.TestModeManager
 import com.sickworm.intellij.jugg.logger.getInstance
 
 /**
@@ -62,7 +63,7 @@ class AppSandboxExecutor(
 
     val applyChangesCapability: ApplyChangesCapability
         get() {
-            if (FORCE_ROOTLESS_COMPAT_E2E) {
+            if (TestModeManager.isForceSystemAppRootlessMode()) {
                 return ApplyChangesCapability.INCOMPATIBLE
             }
             val uid = runAsUid
@@ -154,7 +155,7 @@ class AppSandboxExecutor(
     }
 
     private fun resolve(): Resolution {
-        if (FORCE_ROOTLESS_COMPAT_E2E) {
+        if (TestModeManager.isForceSystemAppRootlessMode()) {
             return unavailable("forced rootless compat E2E")
         }
         val uid = runAsUid
@@ -333,8 +334,6 @@ class AppSandboxExecutor(
     }
 
     companion object {
-        // Temporary switch for manual rootless compat end-to-end verification.
-        private const val FORCE_ROOTLESS_COMPAT_E2E = false
         private val PACKAGE_NAME_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
         private val SAFE_ABSOLUTE_PATH = Regex("/[A-Za-z0-9_./-]+")
         private val SAFE_RELATIVE_PATH = Regex("[A-Za-z0-9_./-]+")

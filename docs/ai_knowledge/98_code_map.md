@@ -1,6 +1,6 @@
 # 代码路径速查表（Code Map）
 
-> 最后核对：2026-09-12
+> 最后核对：2026-09-16
 > 口径：生产代码目录（不含 `build/` 与 `src/test/`）  
 > 一致性规则：文档与代码冲突时，以代码为准。
 
@@ -16,7 +16,7 @@
 | 资源编译 | `ComposeResourceCompiler`, `ComposeResourceGeneratorBridge`, `ComposeResourceScanner`, `ComposeValueResourceConverter`, `ResourceOverlayCompiler`, `ResourceCompiler`, `ArscCompiler`, `AssetOverlayCompiler`, `RDexForSubmoduleCompiler`, `Aapt2DaemonInvoker` | `compiler/compose`, `compiler/overlay`, `aapt2` | Compose resource 准备、unsupported fail-closed、generated diagnostic 回映射、官方 accessor generator bridge、通过 `ModuleBuildPathInfo.composeResourceGeneratedSourcePath` 回写 generated Kotlin 以支持 IDE 索引、现代 `Asset` overlay、显式 `ClasspathResource` 类型的 legacy APK 根目录 classpath resource overlay，以及 Android res/manifest 的 aapt2 link；`RDexForSubmoduleCompiler` 从宿主主 R 派生普通 module 与外部 AAR namespace 的 R.dex；Compose resource 不进入 AAPT2 | 稳定 | 2026-09-15 |
 | DataBinding | `DataBindingArgsManager`, `DataBindingGenBaseClassesCompiler`, `DataBindingSetterStoreCache`, `DataBindingGenMapperCompiler`, `DataBindingClasspathHelper` | `compiler/databinding` | DataBinding/ViewBinding 增量处理；GenMapper 单次 APT/KAPT 输出 current-module store 并维护 merged setter store cache；Mapper 收集当前模块、直接工程依赖和 AAR store | 稳定 | 2026-09-07 |
 | Manifest | `AndroidManifestCompiler`, `AndroidManifestMerger`, `ManifestDiffer` | `compiler/manifest` | 清单差异合并；混淆映射由 `compiler/obfuscation` 承载 | 稳定 | 2026-05-23 |
-| 混淆映射 | `ClassMinifyCompiler`, `DexMinifyCompiler`, `ClassObfuscator`, `R8MappingReader`, `R8UsageReader` | `compiler/obfuscation` | release 混淆映射一致性、`usage.txt` 删除成员读取与 `_jugg_fix` compatibility stub 重写 | 稳定 | 2026-04-01 |
+| 混淆映射 | `ClassMinifyCompiler`, `DexMinifyCompiler`, `ClassObfuscator`, `R8MappingReader`, `R8UsageReader` | `compiler/obfuscation` | release 混淆映射一致性、`usage.txt` 删除成员读取与 `_jugg_fix` compatibility stub 重写；是否混淆由 `ICompileContext.isMinified`（当前变体真实 `minifyEnabled`）决定，开启但缺 mapping 时明确失败 | 稳定 | 2026-09-16 |
 | 自定义编译器 | `CustomCompilerManager`, `ICompilerCreator`, `CompileUiHandler` | `compiler/custom` | SPI 扩展、远端下载 jar、动态装载；编译交互抽象（供 IDE/CLI） | 稳定 | 2025-01-20 |
 | 常量引用分析 | `ConstRefEngine`, `ConstRefAnalyzer`, `ConstRefChangeTracker`, `ConstRefImpactResolver`, `ConstRefSessionCache` | `compiler/constref` | 编译期常量定义/引用分析；按”真实变更常量 key”定位受影响源码；DB 主导+会话缓存；repo/worktree 共享缓存与过期清理 | 稳定 | 2026-03-04 |
 | 部署文件管理 | `JuggDeployer`, `DeployFileManager`, `DeployFileStateTracker`, `DeployDataPlanner`, `CompileEffectAnalyzer`, `DeployHistoryManager`, `ClassFileLookupHelper` | `deploy/core` | 部署调度、文件准备；`DeployFileManager` 作为 facade，状态跟踪/部署数据计算/编译影响分析已解耦 | 稳定 | 2026-02-27 |

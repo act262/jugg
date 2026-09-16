@@ -473,6 +473,13 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
         val result = assertInitScriptRunsOnAndroidFixture(
             assetDir = "android-app-agp90",
             task = ":app:assembleRelease",
+            // The minify flag is read from the real AGP variant, so one variant must differ from the
+            // other for the assertion below to prove the value comes from the build configuration.
+            // Debug is not assembled here, which keeps this fixture free of an R8 run.
+            beforeRun = { fixtureDir ->
+                val appBuildFile = File(fixtureDir, "app/build.gradle")
+                appBuildFile.writeText(appBuildFile.readText().replace("debug {}", "debug { minifyEnabled true }"))
+            },
         ) { fixtureDir, gradleResult ->
             assertEquals(0, gradleResult.exitCode, gradleResult.output)
             val outputFile = JuggPathManager(fixtureDir).gradleProjectInfoFile
@@ -485,6 +492,16 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
             assertEquals(listOf("debug", "release"), library.variants.map { it.name }.sorted())
             assertEquals("release", app.buildVariant)
             assertEquals("release", library.buildVariant)
+            assertEquals(
+                mapOf("debug" to true, "release" to false),
+                app.variants.associate { it.name to it.minifyEnabled },
+                "AGP 9 variants must carry the minify flag read from the variant API.\n${gradleResult.output}",
+            )
+            assertEquals(
+                mapOf("debug" to false, "release" to false),
+                library.variants.associate { it.name to it.minifyEnabled },
+                "AGP 9 library variants must carry the minify flag read from the variant API.\n${gradleResult.output}",
+            )
             assertTrue(app.moduleDependencies.any { it.moduleName == library.name })
         }
         assertEquals(0, result.exitCode, result.output)

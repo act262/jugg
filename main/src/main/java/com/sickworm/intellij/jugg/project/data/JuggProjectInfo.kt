@@ -184,6 +184,12 @@ data class ModuleInfo(
     val isAndroidTestModule: Boolean get() = instrumentationTargetPackage != null
 
     /**
+     * Minify flag of the selected [buildVariant]. Null means unknown: snapshots written before the
+     * field existed, or an AGP version that does not expose it.
+     */
+    val minifyEnabled: Boolean? get() = variants.firstOrNull { it.name == buildVariant }?.minifyEnabled
+
+    /**
      * Type enumerates supported Gradle module categories.
      */
     enum class Type {
@@ -580,11 +586,13 @@ data class AndroidRunConfig(
 )
 
 /**
- * Build variant descriptor and optional signing-config name.
+ * Build variant descriptor, optional signing-config name, and the resolved minify flag.
  */
 data class Variant(
     val name: String,
     val signingConfigName: String?,
+    /** Resolved minify flag; null for snapshots written before this field existed. */
+    val minifyEnabled: Boolean? = null,
 )
 
 /**

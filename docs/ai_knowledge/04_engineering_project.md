@@ -1,6 +1,6 @@
 # 工程化：项目模型与 Gradle 集成
 
-> 最后核对：2026-09-12
+> 最后核对：2026-09-16
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -59,6 +59,7 @@
 | `moduleRootDir` / `projectRootDir` | 模块根与 IDE 项目根；相对路径用于跨机器/远端同步 |
 | `sourceDirs` | 模块全部有效源码根的扁平集合；KMP common roots 也必须包含在内 |
 | `buildVariant` / `buildPathInfo` | 当前变体及 AGP 输出路径推断 |
+| `variants` / `minifyEnabled` | 全部变体及其真实 minify 配置；`minifyEnabled` 是 `variants` 中命中 `buildVariant` 的派生值，`null` 表示旧快照或 AGP 未暴露该配置 |
 | `moduleDependencies` / `runtimeModuleDependencies` / `libraryDependencies` / `runtimeLibraryDependencies` | 编译、APK 运行时归属和库依赖；`runtimeModuleDependencies=null` 表示旧快照，继续使用旧的模块依赖遍历 |
 | `applicationId` / `namespace` | APK 归属、manifest、androidTest target 解析基础 |
 | `isUseDataBinding` | Gradle 读取的 DataBinding build feature；合并后必须保留，供增量 layout 编译选择 DataBinding 模式 |
@@ -126,6 +127,8 @@ Application 与 Dynamic Feature 同时从选中 variant 的 `RuntimeClasspath` �
 `readProjectInfo.gradle.kts` 在 `gradle.taskGraph.whenReady` 后分流执行：dry-run 仍立即调用 `readAndSave()`，避免没有真实 task execution 时丢失 project info；非 dry-run 会把读取挂到 task graph 最后一个 task 的 `doLast`，让依赖快照尽量在 execution phase 读取，减少 Gradle 9/AGP 高版本的 configuration-time resolve warning。
 
 Android variant 读取保留 `applicationVariants`、`libraryVariants` 和 `featureVariants` 作为旧 AGP 的首选入口；仅当 legacy API 未返回 variant 时，才使用配置阶段从 `androidComponents.onVariants` 收集的名称。收集结果按 Gradle project path 存在 root project extra properties 中，不保留 AGP variant 实例；project info 的 `buildVariant` 推导和 AndroidTest assemble task 注入复用同一份回退数据。该注册同时覆盖 application、library 和 dynamic-feature plugin，反射注册失败时保持旧路径继续执行，不中断 Gradle 配置。
+
+每条变体记录同时采集真实 minify 配置，供 `ICompileContext.isMinified` 判断增量编译是否需要混淆。legacy 变体对象不暴露该能力，先尝试 `variant.isMinifyEnabled`，失败后回退到 `variant.buildType.isMinifyEnabled`（`com.android.builder.model.BuildType` 的稳定契约）；Android Components 路径读取变体实现的 `com.android.build.api.variant.CanMinifyCode.isMinifyEnabled`。两处都是 Best-effort 读取，读不到时字段保持 `null`，由 `ICompileContext.isMinified` 判定为“未开启 minify”。不得用 `outputs/mapping/<variant>/mapping.txt` 是否存在代替该配置：用户关闭 minify 后旧 mapping 会残留，据此判断会把未混淆产物按混淆产物处理。
 
 同一次 task graph 出现多个 variant 时，`guessBuildVariant()` 优先按 Gradle 启动 task 的后缀精确匹配最长 variant 名称，再使用原有 Debug/Release 回退。例如 Flutter add-to-app 常见的 `profile { initWith debug }` 会同时执行 Debug 与 Profile 相关 task，但 `:app:assembleProfile` 必须选择 Profile，才能读取 `compileFlutterBuildProfile` 和 `mergeProfileNativeLibs` 元数据。
 
@@ -222,6 +225,7 @@ APK 拉取全部成功后，`LocalGradleCompileClient` / `RemoteGradleCompileCli
 ## 6. 隐形约束
 
 - `ModuleInfo` 新增字段时必须同步 `JuggProjectInfoSerialize`、`JuggProjectInfoMerger`、`ProjectInfoSerializerInGradle`、`CmdLineContextManager`、`LibrariesBackupHelper`；否则 Gradle/IDE/CLI 任一侧会丢字段。
+- `Variant` 的字段由 Groovy `JsonBuilder` / Gson 按属性序列化，不需要手工白名单；新增字段必须保持 nullable 且带默认值，旧快照读回 `null` 表示“未知”。`ModuleInfo.minifyEnabled` 是派生属性、不是存储字段，Gson 不会回写它，也不参与 merge：merge 只保留 Gradle 侧 `variants`，因此 IDE-only 模块的 `minifyEnabled` 保持 `null`。
 - Gradle 侧 Groovy `JsonGenerator` 会把 Kotlin Boolean `is*` 字段写成 JavaBean 名（`isUseDataBinding` → `useDataBinding`）。IDE `ProjectInfoSerializer` 用 Gson 按字段名读取，加载时按 `ModuleInfo` 声明的 `is*` 布尔字段自动把 bean 名拷到字段名，不要为单个开关加白名单。新增同类字段时，`gson load of groovy snapshot preserves DataBinding setting` 会要求 fixture 赋值为 true 并完成 Groovy→Gson 回读。只修 merger 保留逻辑挡不住 JSON 回读丢开关。
 - `LibraryDependency.rPackageName` 保存外部 AAR 的 R namespace：`GradleProjectInfoReader` 按 Gradle component identifier Best-effort 读取 `android-symbol-with-package-name`（`package-aware-r.txt` 首个非空行），AGP 不支持、文件缺失或内容为空时保持 `null`，由 `DependencyDiffResultHelper` 回退 AAR Manifest `package`。它是依赖元数据：不加入 `LibraryDependencySet` 文件集合、不参与 CRC diff，旧快照缺字段按 `null` 读取，metadata 补全不会产生虚假依赖更新。Gradle 快照仅在 `res` 条目序列化该字段，避免在 manifest 和 jar 条目重复保存；序列化与复制路径必须显式保留该字段，尤其是 `ProjectInfoSerializerInGradle.getJsonGenerator()` 的手工白名单 `libraryConverter` 与 `BaseCompileContext.saveTempLibraries()`。
 - `runtimeModuleDependencies` 只对 Application / Dynamic Feature 根模块读取；非空或空列表都是 Gradle resolved runtime 的权威结果，`null` 才触发旧逻辑。`ProjectComponentIdentifier.projectPath` 必须用独立规则去除开头的 `:` 后再把层级分隔符转换为 `.`，composite build 根项目则使用 `projectName`；不能复用面向 display name 的通用转换，也不能继续依赖 `ResolvedDependency.moduleVersion == unspecified` 的启发式判断。
@@ -263,6 +267,7 @@ APK 拉取全部成功后，`LocalGradleCompileClient` / `RemoteGradleCompileCli
 | AGP 升级后找不到 R.jar / manifest / data binding 输出 | `ModuleBuildPathInfo` 对应属性 |
 | R 类能找到但字段缺失、library 资源字段突然找不到 | `BaseCompileContext.getGradleRFilePaths()` 选中的单个 R provider 与 `module compile R.jar candidates found in module` debug 日志；对照 `compile_r_class_jar` 与 `compile_only_not_namespaced_r_class_jar` 的 lastModified |
 | project info JSON 缺字段 | `ModuleInfo` 字段同步清单、`ProjectInfoSerializerInGradle`、`JuggProjectInfoMerger` |
+| 关闭 minify 后增量产物仍带混淆命名 / 开启 minify 后报 mapping 缺失 | `gradle_project_infos.json` 的 `variants[].minifyEnabled`、`ModuleInfo.minifyEnabled`、`ICompileContext.isMinified`；`minifyEnabled=null` 说明快照过期或 AGP 未暴露该配置，需要一次成功的 Gradle 读取 |
 | 已启用 DataBinding 但增量仍报 `data binding is not enabled` | `ProjectInfoSerializer` 对 Groovy `useDataBinding` 的读取别名；再查 merger 是否保留 `isUseDataBinding` |
 | AGP 升级后增量 D8 断言/不兼容 | `JuggProjectInfo.agpR8Classpath`、`GradleProjectInfoReaderManager.findAgpR8Classpath()`、`DexFileMaker` |
 | include build 模块缺失 | `gradle_include_builds.txt` 与 `JuggProjectInfoMerger` |

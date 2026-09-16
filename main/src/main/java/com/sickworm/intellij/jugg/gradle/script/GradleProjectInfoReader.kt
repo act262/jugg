@@ -647,6 +647,7 @@ class GradleProjectInfoReader(
                 variants.add(Variant(
                     variant["name"]?.valueString ?: return@mapNotNull null,
                     variant["signingConfig"]["name"]?.valueString,
+                    readVariantMinifyEnabled(variant),
                 ))
             }
 
@@ -679,6 +680,7 @@ class GradleProjectInfoReader(
                     Variant(
                         variant["name"]?.valueString ?: return@mapNotNull null,
                         variant["signingConfig"]["name"]?.valueString,
+                        readVariantMinifyEnabled(variant),
                     )
                 )
             }
@@ -686,7 +688,11 @@ class GradleProjectInfoReader(
             // com.android.build.gradle.api.LibraryVariant
             (androidExt["libraryVariants"]?.value as? Collection<*>)?.forEach { obj ->
                 val variant = reflector(obj)
-                variants.add(Variant(variant["name"]?.valueString ?: return@forEach,  null))
+                variants.add(Variant(
+                    variant["name"]?.valueString ?: return@forEach,
+                    null,
+                    readVariantMinifyEnabled(variant),
+                ))
             }
         }
 
@@ -707,6 +713,16 @@ class GradleProjectInfoReader(
                 buildDirRelativePath = project.layout.buildDirectory.get().asFile.relativeTo(ideProjectDir).path
             ),
         )
+    }
+
+    /**
+     * Reads the resolved minify flag of one Android variant. The legacy variant API does not expose
+     * `isMinifyEnabled`, so the variant build type model is the fallback source. Both reads are
+     * best-effort and return null when unavailable, which keeps old snapshots at "unknown".
+     */
+    private fun readVariantMinifyEnabled(variant: Reflector): Boolean? {
+        (variant["isMinifyEnabled"]?.value as? Boolean)?.let { return it }
+        return variant["buildType"]["isMinifyEnabled"]?.value as? Boolean
     }
 
     private fun guessBuildVariant(project: Project, variants: List<Variant>): String? {

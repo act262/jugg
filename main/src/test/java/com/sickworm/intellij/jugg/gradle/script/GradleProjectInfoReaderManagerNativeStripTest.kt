@@ -234,6 +234,77 @@ class GradleProjectInfoReaderManagerNativeStripTest {
     }
 
     @Test
+    fun `orders requested codegen before native prefixes of the same invocation`() {
+        val root = temporaryFolder.newFolder("collector-prereq")
+        val appDir = File(root, "app").apply { mkdirs() }
+        val request = """{"invocationId":"invocation-1","items":[{"moduleName":"app",""" +
+                """"moduleRootDir":"${appDir.path}","buildVariant":"debug",""" +
+                """"taskPath":":app:mergeDebugNativeLibs","type":"Cpp",""" +
+                """"prerequisiteTaskPaths":[":app:compileMidl"],""" +
+                """"prerequisiteBeforeNativePrefixes":["merge","buildCMake","externalNativeBuild"]}]}"""
+        val requestFile = File(root, "request.json").apply { writeText(request) }
+        val rootProject = ProjectBuilder.builder().withProjectDir(root).build()
+        val invocationProperties = rootProject.extensions.extraProperties
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_REQUEST, requestFile.path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_OUTPUT, File(root, "output").path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_INVOCATION, "invocation-1",
+        )
+        val appProject = ProjectBuilder.builder().withName("app").withParent(rootProject)
+            .withProjectDir(appDir).build()
+        val compileMidl = appProject.tasks.create("compileMidl", DefaultTask::class.java)
+        val mergeTask = appProject.tasks.create("mergeDebugNativeLibs", TestNativeMergeTask::class.java)
+            .apply { outputDir = File(appDir, "merge").apply { mkdirs() } }
+        val cmakeTask = appProject.tasks.create("buildCMakeDebug", DefaultTask::class.java)
+        val kotlinTask = appProject.tasks.create("compileDebugKotlin", DefaultTask::class.java)
+
+        GradleProjectInfoReaderManager(rootProject, emptyList()).configureExternalBuildInfoCollector()
+
+        val collector = rootProject.tasks.getByName(
+            GradleProjectInfoReaderManager.COLLECT_EXTERNAL_BUILD_INFO_TASK_NAME,
+        )
+        assertTrue(mergeTask.taskDependencies.getDependencies(mergeTask).contains(compileMidl))
+        assertTrue(cmakeTask.taskDependencies.getDependencies(cmakeTask).contains(compileMidl))
+        assertTrue(kotlinTask.taskDependencies.getDependencies(kotlinTask).none { it == compileMidl })
+        assertTrue(collector.taskDependencies.getDependencies(collector).contains(compileMidl))
+        assertTrue(collector.taskDependencies.getDependencies(collector).contains(mergeTask))
+    }
+
+    @Test
+    fun `does not order codegen before native tasks when the request omits prerequisites`() {
+        val root = temporaryFolder.newFolder("collector-no-prereq")
+        val appDir = File(root, "app").apply { mkdirs() }
+        val request = """{"invocationId":"invocation-1","items":[{"moduleName":"app",""" +
+                """"moduleRootDir":"${appDir.path}","buildVariant":"debug",""" +
+                """"taskPath":":app:mergeDebugNativeLibs","type":"Cpp"}]}"""
+        val requestFile = File(root, "request.json").apply { writeText(request) }
+        val rootProject = ProjectBuilder.builder().withProjectDir(root).build()
+        val invocationProperties = rootProject.extensions.extraProperties
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_REQUEST, requestFile.path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_OUTPUT, File(root, "output").path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_INVOCATION, "invocation-1",
+        )
+        val appProject = ProjectBuilder.builder().withName("app").withParent(rootProject)
+            .withProjectDir(appDir).build()
+        val compileMidl = appProject.tasks.create("compileMidl", DefaultTask::class.java)
+        val mergeTask = appProject.tasks.create("mergeDebugNativeLibs", TestNativeMergeTask::class.java)
+            .apply { outputDir = File(appDir, "merge").apply { mkdirs() } }
+
+        GradleProjectInfoReaderManager(rootProject, emptyList()).configureExternalBuildInfoCollector()
+
+        assertTrue(mergeTask.taskDependencies.getDependencies(mergeTask).none { it == compileMidl })
+    }
+
+    @Test
     fun `strips with the cached owner configuration when the owner strip task is unavailable`() {
         val project = createProject(registerStripTask = false)
         val mergeOutput = writeLib(project.root, "lib/arm64-v8a/libapp.so", "with-debug-symbols")

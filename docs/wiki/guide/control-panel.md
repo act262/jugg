@@ -25,7 +25,7 @@ The Control Panel maintains the current IDE session state from structured events
 
 ## Open the panel
 
-Projects with a runnable Jugg configuration show the `Jugg Running Pannel` tool window on the right side of Android Studio. You can also open it from `Tools > Open Jugg Control Panel`.
+Projects with a runnable Jugg configuration show the `Jugg Running Panel` tool window on the right side of Android Studio. You can also open it from `Tools > Open Jugg Control Panel`.
 
 Entry points in the Run Configuration that require settings open the Settings page directly, so you do not need to search through two windows.
 

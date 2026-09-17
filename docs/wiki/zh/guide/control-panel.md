@@ -25,7 +25,7 @@ Run tool window 更适合查看一轮任务的完整文本，但日常排查经�
 
 ## 打开面板
 
-有可运行 Jugg 配置的工程会在 Android Studio 右侧显示 \`Jugg Running Pannel\` 工具窗口。也可以从 \`Tools > Open Jugg Control Panel\` 打开。
+有可运行 Jugg 配置的工程会在 Android Studio 右侧显示 \`Jugg Running Panel\` 工具窗口。也可以从 \`Tools > Open Jugg Control Panel\` 打开。
 
 Run Configuration 中需要进入设置的入口会直接切到面板的 Settings 页，不需要在两个窗口间重复查找。
 

@@ -189,7 +189,7 @@ class JuggRunSettingsComponentTest {
         Mockito.`when`(content.component).thenReturn(panel)
         Mockito.`when`(contentManager.contents).thenReturn(arrayOf(content))
         Mockito.`when`(toolWindow.contentManager).thenReturn(contentManager)
-        Mockito.`when`(toolWindowManager.getToolWindow("Jugg Running Pannel")).thenReturn(toolWindow)
+        Mockito.`when`(toolWindowManager.getToolWindow("Jugg Running Panel")).thenReturn(toolWindow)
         Mockito.doReturn(toolWindowManager).`when`(project).getService(ToolWindowManager::class.java)
 
         val component = JuggRunSettingsComponent()

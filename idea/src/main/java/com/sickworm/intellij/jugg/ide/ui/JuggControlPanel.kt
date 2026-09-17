@@ -866,7 +866,7 @@ class JuggControlPanel(
     }
 
     companion object {
-        const val TOOL_WINDOW_ID = "Jugg Running Pannel"
+        const val TOOL_WINDOW_ID = "Jugg Running Panel"
         private const val CHANGED_FILES_VISIBLE_ROWS = 5
         private const val RECENT_RUNS_VISIBLE_ROWS = 5
         private const val SETTING_SEARCH_TEXT = "JuggControlPanel.settingSearchText"

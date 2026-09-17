@@ -1,12 +1,18 @@
 <h1>更新日志</h1>
-<h2>3.5.0 (2026.09.12)</h2>
+<h2>3.5.1 (2026.09.18)</h2>
 <ol>
     <li>[feature] 支持 Flutter 和 C++ 源码变更，变更调用 Gradle task 生成 so，然后走 Jugg 增量构建</li>
     <li>[feature] 支持系统应用增量更新</li>
     <li>[feature] 兼容 Hilt，增量源码更新时保留 Hilt 注入，避免崩溃</li>
     <li>[feature] 支持自定义 APK 安装脚本</li>
+    <li>[feature] 支持 Android Studio Rabbit</li>
+    <li>[feature] 支持自定义 APK 签名，适配 system app 远程签名场景</li>
+    <li>[feature] 支持 system app 在无 root 或 run-as 权限时走兼容部署</li>
+    <li>[feature] Running Panel 与日志中增加回退原因及用户操作记录</li>
     <li>[optimize] Dex 报错回退时展示更简洁的警告</li>
     <li>[optimize] 优化自研部署通道耗时</li>
+    <li>[optimize] 兼容无普通 Launcher Activity 的应用，部署后自动启动 Home Activity 或直接 stop，避免出现不生效的幻觉</li>
+    <li>[optimize] 优化 3.5.0 引入的多模块与 Dynamic Feature 项目读取耗时变长的问题</li>
     <li>[bugfix] 修复 Bumblebee 运行配置查找与命名</li>
     <li>[bugfix] 修复上架问题：移除不兼容 API，更新 IDE 上的 Gradle Sync 处理</li>
     <li>[bugfix] 避免 profile 构建误用 debug 任务元数据</li>
@@ -17,6 +23,12 @@
     <li>[bugfix] 修复 AGP 4.2.2 运行时增量 ViewBinding 失败</li>
     <li>[bugfix] 修复 KMP common 源码使用 @HiddenFromObjC 时 Kotlin 增量编译缺少 opt-in 参数</li>
     <li>[bugfix] 修复 KMP Compose resource 场景，设备 &gt;= Android 15，Android Studio &lt; Meerkat，Kotlin &gt;= 2.1，第一次编译就修改了 KMP Compose resource 资源时，需要重启两次才能生效的问题 🤣</li>
+    <li>[bugfix] 修复开启 Configuration on Demand 时 C++ 增量修改未生效或找不到 strip 工具的问题</li>
+    <li>[bugfix] 修复 C++ 增量编译后因未剥离调试符号导致部署报 Java heap space 内存溢出的问题</li>
+    <li>[bugfix] 避免 Native 或 Flutter 根目录下的无关文件变更误触发外部构建</li>
+    <li>[bugfix] 修复 CMake 相对路径源码及跨模块共享源码未被正确识别为增量输入/输出的问题</li>
+    <li>[bugfix] 修复变体关闭代码混淆（minify）后因残留 mapping 文件，误识别为需要混淆，导致增量构建运行时崩溃的问题</li>
+    <li>[bugfix] 修复修改模块资源后，外部 AAR 依赖读取新增资源发生 NoSuchFieldError 的问题</li>
 </ol>
 <h2>3.4.3 (2026.09.09)</h2>
 <ol>

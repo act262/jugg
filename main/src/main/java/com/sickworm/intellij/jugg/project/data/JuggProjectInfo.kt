@@ -112,7 +112,7 @@ enum class ExternalBuildType {
     Cpp,
 }
 
-/** One external build whose metadata must be refreshed after its Gradle task finishes. */
+/** One external task that the invocation executes before refreshing its metadata. */
 data class ExternalBuildInfoRequestItem(
     val moduleName: String,
     val moduleRootDir: File,
@@ -127,7 +127,7 @@ data class ExternalBuildInfoRequestItem(
     val apkOwnerBuildVariant: String? = null,
 )
 
-/** Invocation-scoped request consumed by the Gradle init script collector. */
+/** Transient execution and collection manifest consumed by the Gradle init script collector. */
 data class ExternalBuildInfoRequest(
     val invocationId: String,
     val items: List<ExternalBuildInfoRequestItem>,

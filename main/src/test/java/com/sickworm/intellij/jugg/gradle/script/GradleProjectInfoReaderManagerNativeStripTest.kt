@@ -157,7 +157,7 @@ class GradleProjectInfoReaderManagerNativeStripTest {
     }
 
     @Test
-    fun `runs the collector after the selected module tasks without depending on them`() {
+    fun `depends on the selected module tasks before collecting native output`() {
         val root = temporaryFolder.newFolder("collector-graph")
         val moduleMerge = File(root, "module-merge").apply { mkdirs() }
         val request = """{"invocationId":"invocation-1","items":[{"moduleName":"app",""" +
@@ -188,12 +188,48 @@ class GradleProjectInfoReaderManagerNativeStripTest {
         val collector = rootProject.tasks.getByName(GradleProjectInfoReaderManager.COLLECT_EXTERNAL_BUILD_INFO_TASK_NAME)
         assertEquals(
             setOf(moduleMergeTask),
-            collector.mustRunAfter.getDependencies(collector),
-            "the collector must only be ordered after the selected module tasks",
+            collector.taskDependencies.getDependencies(collector),
+            "the collector must depend on the selected module tasks so parallel builds cannot collect stale output",
         )
         assertTrue(
-            collector.taskDependencies.getDependencies(collector).none { it == stripTask || it == moduleMergeTask },
-            "the collector must not depend on the app strip or the module merge task",
+            collector.taskDependencies.getDependencies(collector).none { it == stripTask },
+            "the collector must not execute the app strip task",
+        )
+    }
+
+    @Test
+    fun `orders collector after module tasks even when module tasks are registered after collector configuration`() {
+        val root = temporaryFolder.newFolder("collector-graph-lazy")
+        val moduleMerge = File(root, "module-merge").apply { mkdirs() }
+        val request = """{"invocationId":"invocation-1","items":[{"moduleName":"app",""" +
+                """"moduleRootDir":"${root.path}","buildVariant":"debug",""" +
+                """"taskPath":":app:mergeDebugNativeLibs","type":"Cpp"}]}"""
+        val requestFile = File(root, "request.json").apply { writeText(request) }
+        val rootProject = ProjectBuilder.builder().withProjectDir(root).build()
+        val invocationProperties = rootProject.extensions.extraProperties
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_REQUEST, requestFile.path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_OUTPUT, File(root, "output").path,
+        )
+        invocationProperties.set(
+            GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_INVOCATION, "invocation-1",
+        )
+        val appProject = ProjectBuilder.builder().withName("app").withParent(rootProject)
+            .withProjectDir(root).build()
+
+        // Configure collector before the module task is registered (simulating Configuration on Demand)
+        GradleProjectInfoReaderManager(rootProject, emptyList()).configureExternalBuildInfoCollector()
+
+        val moduleMergeTask = appProject.tasks.create("mergeDebugNativeLibs", TestNativeMergeTask::class.java)
+            .apply { outputDir = moduleMerge }
+
+        val collector = rootProject.tasks.getByName(GradleProjectInfoReaderManager.COLLECT_EXTERNAL_BUILD_INFO_TASK_NAME)
+        assertEquals(
+            setOf(moduleMergeTask),
+            collector.taskDependencies.getDependencies(collector),
+            "the collector must depend on selected module tasks even when tasks are registered later",
         )
     }
 

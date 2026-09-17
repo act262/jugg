@@ -163,7 +163,7 @@ C++ Collector 已通过 request 获得 APK owner 的 `moduleRootDir` 与 `varian
 - C++ task 位于 library module，APK owner 为未被请求的 `:app`。
 - 首次完整 Gradle 构建生成 native strip cache。
 - 后续 external invocation 不配置 `:app`，Collector 仍成功产出 stripped native output。
-- task graph 不执行 `:app:stripDebugDebugSymbols` 和 `:app:mergeDebugNativeLibs`。
+- task graph 不执行 `:app:stripDebugDebugSymbols`，也不额外执行未被选中的 APK owner merge task；被选中的 library merge task 依旧是本轮 external task。
 
 ### 10.4 CI 基线验证
 
@@ -194,7 +194,7 @@ C++ Collector 已通过 request 获得 APK owner 的 `moduleRootDir` 与 `varian
 ## 12. 验收标准
 
 1. report `75046b19` 对应的 Configuration on Demand 场景不再因 APK owner 未配置而报 strip task missing。
-2. C++ 增量 invocation 不执行或依赖 APK owner 的 strip/merge native tasks。
+2. C++ 增量 invocation 不执行 APK owner strip task，也不为读取配置额外依赖 owner merge task；当 owner merge 本身就是 selected external task 时保持执行。
 3. strip 结果继续遵循 AGP `keepDebugSymbols` 与 ABI tool 语义。
 4. 本地完整构建生成自包含的 `build/jugg/classpath/native_strip` 缓存。
 5. CI 基线换目录、原 NDK 路径不可用后仍能使用备份工具。

@@ -535,13 +535,14 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
             "Expected manifest replacement log not found.\n${result.output}",
         )
     }
+
     /**
-     * Verifies the selective native strip contract against a real AGP project: the collector strips
-     * the selected module merge output with the APK owner configuration, without executing the app
-     * strip or app merge task, and reproduces AGP's own stripped output byte for byte.
+     * Verifies the selective native strip contract against a real AGP project: the collector runs
+     * the requested merge task before stripping its output, without executing the app strip task,
+     * and reproduces AGP's own stripped output byte for byte.
      */
     @Test
-    fun generatedScript_shouldStripSelectedNativeOutputWithoutAppNativeTasks() {
+    fun generatedScript_shouldBuildBeforeStrippingSelectedNativeOutput() {
         assumeNativeToolchain()
         val fixtureDir = Files.createTempDirectory("jugg_gradle_fixture_native_strip").toFile()
         try {
@@ -563,6 +564,8 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
                 "--no-daemon",
             )
             assertEquals(0, mergeResult.exitCode, "Fixture native build failed.\n${mergeResult.output}")
+            val nativeSource = File(fixtureDir, "app/src/main/cpp/native.cpp")
+            nativeSource.writeText(nativeSource.readText().replace("jugg-fixture", "jugg-fixture-updated"))
 
             val invocationDir = File(fixtureDir, "invocation")
             val requestFile = File(invocationDir, "request.json").apply {
@@ -586,10 +589,13 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
                 "--no-daemon",
             )
             assertEquals(0, collectResult.exitCode, "Collector failed.\n${collectResult.output}")
+            assertTrue(
+                collectResult.output.contains("> Task :app:mergeDebugNativeLibs"),
+                "The collector must run the requested module merge task first.\n${collectResult.output}",
+            )
             assertFalse(
-                collectResult.output.contains("> Task :app:stripDebugDebugSymbols") ||
-                        collectResult.output.contains("> Task :app:mergeDebugNativeLibs"),
-                "The collector must not execute the app strip or app merge task.\n${collectResult.output}",
+                collectResult.output.contains("> Task :app:stripDebugDebugSymbols"),
+                "The collector must not execute the app strip task.\n${collectResult.output}",
             )
 
             val update = readSingleUpdate(outputDir)
@@ -619,7 +625,8 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
     }
 
     /**
-     * Verifies the configuration-on-demand regression of report 75046b19 against a real AGP project:
+     * Verifies the configuration-on-demand regressions of reports 75046b19 and 584a6a17 against a
+     * real AGP project:
      * the native build lives in a library module, the APK owner `:app` is not part of the external
      * invocation, and the collector still strips the library output from the configuration a previous
      * full Gradle build cached.
@@ -652,6 +659,14 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
                 File(cacheDir, "config.json").isFile,
                 "A full Gradle build must cache the APK owner strip configuration.\n${fullBuild.output}",
             )
+            // Force the requested native merge task to produce a different library for this invocation.
+            val nativeSource = File(fixtureDir, "nativelib/src/main/cpp/native.cpp")
+            nativeSource.writeText(
+                nativeSource.readText().replace(
+                    "jugg-ondemand-fixture",
+                    "jugg-ondemand-fixture-updated",
+                ),
+            )
 
             val invocationDir = File(fixtureDir, "invocation")
             val requestFile = File(invocationDir, "request.json").apply {
@@ -672,6 +687,7 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
                 "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_REQUEST}=${requestFile.path}",
                 "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_OUTPUT}=${outputDir.path}",
                 "-P${GradleProjectInfoReaderManager.PARAM_EXTERNAL_BUILD_INVOCATION}=invocation-1",
+                "--parallel",
                 "--console=plain",
                 "--no-daemon",
             )
@@ -691,14 +707,24 @@ class ReadProjectInfoGradle9CompatTest : ReadProjectInfoGradleCompatTestBase() {
             val strippedLibs = strippedRoot.walkTopDown().filter { it.extension == "so" }.toList()
             assertEquals(1, strippedLibs.size, "stripped libs: $strippedLibs")
             assertEquals("arm64-v8a", strippedLibs.single().parentFile.name, "compiled output layout changed")
-            // The full build already stripped the library output as part of the APK owner strip task.
+            val agpStripResult = runGradle(
+                fixtureDir,
+                ":app:stripDebugDebugSymbols",
+                "--rerun-tasks",
+                "--console=plain",
+                "--no-daemon",
+            )
+            assertEquals(0, agpStripResult.exitCode, "AGP strip failed.\n${agpStripResult.output}")
             val agpStripped = File(fixtureDir, "app/build/intermediates/stripped_native_libs")
                 .walkTopDown()
                 .single { it.isFile && it.name == strippedLibs.single().name }
-            assertEquals(
-                agpStripped.readBytes().toList(),
-                strippedLibs.single().readBytes().toList(),
-                "Jugg stripped output must match the AGP strip output of the full build",
+            val expectedBytes = agpStripped.readBytes()
+            val actualBytes = strippedLibs.single().readBytes()
+            assertTrue(
+                expectedBytes.contentEquals(actualBytes),
+                "Jugg stripped output must match the current AGP strip output: " +
+                        "expected=${expectedBytes.size}/${expectedBytes.contentHashCode()}, " +
+                        "actual=${actualBytes.size}/${actualBytes.contentHashCode()}\n${collectResult.output}",
             )
         } finally {
             fixtureDir.deleteRecursively()

@@ -230,19 +230,21 @@ class GradleProjectInfoReaderManager(
         }
     }
 
-    /** Configures the invocation-scoped collector after all external build tasks are available. */
+    /** Makes the collector depend on every local external task declared by this invocation. */
     fun configureExternalBuildInfoCollector() {
         if (!isExternalBuildInfoCollection()) {
             return
         }
         val collector = rootProject.tasks.maybeCreate(COLLECT_EXTERNAL_BUILD_INFO_TASK_NAME)
-        val localTasks = readExternalBuildInfoRequests().mapNotNull { request ->
-            rootProject.allprojects.firstOrNull {
+        val requests = readExternalBuildInfoRequests()
+        val localTaskPaths = requests.mapNotNull { request ->
+            val matchesLocalProject = rootProject.allprojects.any {
                 it.projectDir.absoluteFile.normalize() == request.moduleRootDir.absoluteFile.normalize()
-            }?.tasks?.findByPath(request.taskPath)
-        }
-        if (localTasks.isNotEmpty()) {
-            collector.mustRunAfter(localTasks)
+            }
+            if (matchesLocalProject) request.taskPath else null
+        }.distinct()
+        if (localTaskPaths.isNotEmpty()) {
+            collector.dependsOn(localTaskPaths)
         }
         includeBuildProjects.forEach { includedBuild ->
             collector.dependsOn(includedBuild.task(COLLECT_EXTERNAL_BUILD_INFO_TASK_PATH))

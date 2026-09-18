@@ -1,3 +1,8 @@
+- version: 3.6.0
+  date: 2026.09.18
+  updates:
+    - "[feature] 支持在 C++ 增量构建前执行声明的代码生成任务（如 IDL），并将生成的源码纳入增量编译"
+
 - version: 3.5.1
   date: 2026.09.18
   updates:

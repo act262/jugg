@@ -1,3 +1,8 @@
+- version: 3.6.0
+  date: 2026.09.18
+  updates:
+    - "[feature] Support running declared codegen tasks (such as IDL) before C++ incremental native builds and including generated code in incremental compilation"
+
 - version: 3.5.1
   date: 2026.09.18
   updates:

@@ -1,6 +1,6 @@
 ---
 title: First run
-description: Learn what happens on the first Jugg Run, how to read the result, and when to fall back to Gradle manually.
+description: Master the Jugg first run process to establish a Gradle baseline, verify console incremental signals, and understand everyday 3-second hot reloads.
 status: active
 tags:
   - onboarding
@@ -9,75 +9,74 @@ tags:
 
 # First run
 
-After installing the plugin and waiting for project Sync to finish, run the app with Jugg once. The first run establishes the Gradle baseline and deployment state; it is not intended to demonstrate incremental-build speed.
+After installing the Jugg plugin and waiting for project Sync to complete, you can trigger your first run. The core goal of the first run is to **build a full APK and establish the incremental compilation baseline and deployment state**. This initial run takes about the same time as a standard Gradle build.
 
-## Before clicking Run
+## 1. Pre-run checklist
 
-Confirm the following before clicking Run:
+Before clicking Run, quickly confirm the following:
 
-1. The selected run configuration is `jugg:module-name`, not the native App configuration.
-2. A target device is selected and runs Android 8 or later.
-3. Project Sync has finished and no Gradle import is in progress.
+1. **Run Configuration**: Selected `jugg:<moduleName>` in the top toolbar (rather than the native App configuration).
+2. **Target Device**: Connected a physical device or emulator running Android 8.0 (API 26) or later.
+3. **Sync Status**: Android Studio has no Gradle Sync or background indexing tasks in progress.
 
-Then click Run in Android Studio. A Jugg Run can be canceled; stop the run if you selected the wrong device or configuration.
+Once confirmed, click the green **Run** button in the Android Studio toolbar. If you selected the wrong device or configuration, stop the run at any time by clicking the red Stop button.
 
-## What happens during the first run
+## 2. First-run mechanics: Establishing the Gradle baseline
+
+On the first run, Jugg initializes automatically via the following pipeline:
 
 ```text
 Click Jugg Run
-  -> check the project and device state
-  -> fall back to a Gradle build because no incremental baseline exists yet
-  -> build and install the APK
-  -> collect artifacts required by later incremental builds in the background
-  -> prefer incremental compilation and deployment for subsequent small changes
+  -> Check local environment and device connection status
+  -> Detect missing incremental baseline, automatically fall back to full Gradle build
+  -> Install and launch the target application
+  -> In the background, collect class relations, resource maps, and R files for future incremental runs
+  -> Baseline ready: subsequent code and resource modifications enter the 3-second bypass pipeline
 ```
 
-Jugg also falls back to Gradle when the baseline is no longer trustworthy: on the first run, after a `build.gradle` or dependency change, or after switching branches. The run output explains the reason for the fallback.
+> [!NOTE]
+> A full Gradle build is only required on the very first run. Once the baseline is established, everyday development changes will experience instant second-level feedback.
 
-## Everyday workflow after making changes
+## 3. Verification: Console log characteristics
 
-After small changes to code, resources, layouts, or assets, click the same Jugg Run Configuration again. Jugg chooses an execution path based on the changed files:
+Upon successful completion of the first run, the **Run** tool window at the bottom of Android Studio displays Jugg's progress:
 
-| Change type | Typical result |
+```text
+[Jugg] Starting Jugg Run for app...
+[Jugg] Baseline not found, falling back to full Gradle build...
+[Jugg] Gradle build succeeded. Installing APK...
+[Jugg] Jugg baseline established successfully. Ready for incremental builds!
+```
+
+When you see the baseline readiness message, Jugg has successfully taken over incremental compilation for the project.
+
+## 4. Everyday development: 3-second hot reload and execution paths
+
+After the baseline is established, whenever you make small changes to Java, Kotlin, XML layouts, or Assets, continue clicking **Jugg Run** (or press `Ctrl + R` / `Shift + F10`):
+
+| Modification Scenario | Jugg Decision Path | Expected Feedback Latency |
+|---|---|---|
+| **Modify method body / add private method** | Incrementally compiles classes and applies hot swap | **~1–3 seconds** (no app restart needed) |
+| **Modify XML layout / drawables** | Incrementally generates resource table and pushes to app sandbox | **~2–3 seconds** (refreshes immediately) |
+| **Modify class signature / add Activity** | Incrementally repackages APK and restarts target Activity | **~3–5 seconds** |
+| **Modify `build.gradle` / dependencies** | Automatically falls back to full Gradle build safely and refreshes baseline | Depends on project full build duration |
+
+## 5. When to fall back to Gradle manually
+
+In the following scenarios, manually refreshing the baseline with a native Gradle build is recommended:
+
+| Scenario | Recommended Action |
 |---|---|
-| Java or Kotlin method-body changes and small resource changes | Hot deployment after incremental compilation |
-| Code that requires a restart to take effect | Restart the app after compilation |
-| Gradle changes, dependency changes, or a missing baseline | Fall back to a Gradle build |
-| An explicitly unsupported scenario | Report a failure or recommend a comparison Gradle build |
+| **Manually cleaned `build/` directory** | Incremental artifacts are missing; run a native App Run to rebuild the baseline |
+| **Switched Git branch or upgraded dependencies** | Major dependency or Manifest changes; perform a full build once |
+| **Validating unsupported annotation processors** | Verify generated code correctness with a native Gradle build first |
 
-Use the final result in the Run tool window as the outcome of the run.
-
-## Important limitations
-
-- Jugg ignores delete operations. After deleting a class, resource, or Manifest node, run a full Gradle build or reinstall the app if you need to confirm that the old content is truly gone.
-- Reflection can bypass parts of static impact analysis. Do not rely only on an incremental result when validating deletions used through reflection.
-- Only supported annotation processors can run incrementally. Existing generated code remains available, but after adding or changing an unsupported annotation, use a Gradle build to verify the result.
-- Clearing app data removes the deployment history. Click Run once more and Jugg will restore the deployment state.
-- If an incremental result is unexpected, run a Gradle build for comparison first. Upload the logs after confirming that the problem is specific to Jugg.
-
-## Fall back to Gradle manually
-
-Use a manual Gradle fallback first in these situations:
-
-| Scenario | Reason |
-|---|---|
-| You manually cleaned the `build` directory | Artifacts required by incremental compilation are missing |
-| You changed build scripts, plugins, or dependency versions | The complete Gradle pipeline must recalculate the build state |
-| Incremental compilation failed and could not recover automatically | Rebuild the baseline before continuing with incremental runs |
-| You suspect that the current result is incorrect | Compare it with a Gradle result |
-
-If no files have changed, click Jugg Run again and choose the Gradle fallback. This entry is useful for refreshing the baseline manually.
-
-## Report an issue
-
-When a problem occurs, use [Report an issue](../guide/report-issue.md) to upload logs first. Send the resulting Issue ID and reproduction steps to the maintainer.
-
-The local log is available at `build/jugg/log/compile_latest.log`.
+---
 
 ## Next steps
 
-- [Run the app](../guide/run.md)
-- [Report an issue](../guide/report-issue.md)
-- [Compilation failed](../troubleshooting/compile-failed.md)
-- [Changes not applied](../troubleshooting/changes-not-applied.md)
-- [App cannot run](../troubleshooting/app-cannot-run.md)
+Your baseline is successfully established! Continue exploring Jugg's powerful developer capabilities:
+
+- 📖 **[Everyday run & hot reload guide](../guide/run.md)**: Master hot reload modes and multi-device deployment
+- ⚡ **[Jugg CLI practical guide](../guide/cli.md)**: Experience 3-second builds in terminal or automation scripts
+- 🛠️ **[Supported packaging methods](../troubleshooting/supported-packaging.md)**: Explore support for obfuscation, AabResGuard, and Dynamic Features

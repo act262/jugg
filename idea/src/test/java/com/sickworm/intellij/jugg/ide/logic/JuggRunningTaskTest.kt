@@ -89,6 +89,20 @@ class JuggRunningTaskTest {
     }
 
     @Test
+    fun `checkAndMarkFirstRun returns true on first call and false on subsequent calls for same project`() {
+        JuggRunningTask.resetHasRunProjects()
+        val project1 = Mockito.mock(com.intellij.openapi.project.Project::class.java)
+        Mockito.`when`(project1.basePath).thenReturn("/path/to/project1")
+
+        assertTrue(JuggRunningTask.checkAndMarkFirstRun(project1))
+        assertFalse(JuggRunningTask.checkAndMarkFirstRun(project1))
+
+        val project2 = Mockito.mock(com.intellij.openapi.project.Project::class.java)
+        Mockito.`when`(project2.basePath).thenReturn("/path/to/project2")
+        assertTrue(JuggRunningTask.checkAndMarkFirstRun(project2))
+    }
+
+    @Test
     fun `normal run detaches process when task stops`() {
         assertTrue(shouldDetachProcessOnTaskStop(isProcessCanceled = false))
     }

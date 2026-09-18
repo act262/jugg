@@ -22,7 +22,7 @@ jobs:
       - name: Check out develop branch
         uses: actions/checkout@v6
         with:
-          ref: develop
+          ref: develop/4.0
           fetch-depth: 1
 
       - name: Check for unpublished commits
@@ -113,7 +113,7 @@ jobs:
         if: steps.check.outputs.should_build == 'true'
         env:
           ASSET_NAME: jugg-canary-nightly.zip
-          BRANCH: develop
+          BRANCH: develop/4.0
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: canary-nightly
           RELEASE_TITLE: Jugg Canary

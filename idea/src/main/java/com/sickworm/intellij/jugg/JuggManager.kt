@@ -147,6 +147,7 @@ class JuggManager @TestOnly constructor(
             deployHistoryManager.checkProjectDirChanged()
             clearLegacySystemJuggDir()
             logger.info("Start jugg finished.")
+            controlPanelController.onManagerReady()
 
             // init project info async
             runTaskSafe("Init project info", ::recoverDeployContext)

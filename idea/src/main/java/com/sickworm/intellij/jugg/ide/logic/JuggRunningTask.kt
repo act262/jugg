@@ -37,8 +37,10 @@ import com.sickworm.intellij.jugg.project.dependency.IDependencyChangeManager
 import com.sickworm.intellij.jugg.server.JuggServer
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.util.Collections
 import java.util.UUID
 import javax.swing.SwingUtilities
+import org.jetbrains.annotations.TestOnly
 
 private typealias JuggEventCategory = JuggEvent.Category
 private typealias JuggEventLevel = JuggEvent.Level
@@ -166,6 +168,9 @@ class JuggRunningTask(
     private fun showGreenDotOnRunToolWindow() {
         prepareRunToolWindowOnTaskStart(statusManager.isFirstTimeRun(), compileUiHandler)
         SwingUtilities.invokeLater {
+            if (checkAndMarkFirstRun(project)) {
+                compileUiHandler.showRunWindow()
+            }
             val toolWindowManager: ToolWindowManager = ToolWindowManager.getInstance(project)
             toolWindowManager.getToolWindow("Run")?.let {
                 val icon = ExecutionUtil.getLiveIndicator(it.icon)
@@ -566,6 +571,21 @@ class JuggRunningTask(
     }
 
     companion object {
+
+        private val hasRunProjects = Collections.synchronizedSet(mutableSetOf<String>())
+
+        /**
+         * Checks whether the given [project] runs for the first time in this IDE session and marks it as run.
+         */
+        fun checkAndMarkFirstRun(project: Project): Boolean {
+            val key = project.basePath ?: project.name
+            return hasRunProjects.add(key)
+        }
+
+        @TestOnly
+        fun resetHasRunProjects() {
+            hasRunProjects.clear()
+        }
 
         fun notifyByBalloon(project: Project, message: String) {
             SwingUtilities.invokeLater {

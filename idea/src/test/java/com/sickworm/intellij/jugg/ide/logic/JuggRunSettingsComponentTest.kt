@@ -506,6 +506,58 @@ class JuggRunSettingsComponentTest {
     }
 
     @Test
+    fun `control panel host refresh updates host component when manager becomes available`() {
+        val host = JuggControlPanelHost()
+        val realPanel = JPanel()
+
+        val mockManager = Mockito.mock(com.sickworm.intellij.jugg.ide.IJuggManagerCaller::class.java)
+        Mockito.`when`(mockManager.getJuggControlPanel("overview")).thenReturn(realPanel)
+
+        val project = Mockito.mock(Project::class.java)
+        Mockito.`when`(project.basePath).thenReturn("/mock/project")
+        Mockito.`when`(project.isDisposed).thenReturn(false)
+
+        val content = Mockito.mock(Content::class.java)
+        val contentManager = Mockito.mock(ContentManager::class.java)
+        val toolWindow = Mockito.mock(ToolWindow::class.java)
+        val toolWindowManager = Mockito.mock(ToolWindowManager::class.java)
+
+        Mockito.`when`(content.component).thenReturn(host)
+        Mockito.`when`(contentManager.contents).thenReturn(arrayOf(content))
+        Mockito.`when`(toolWindow.contentManager).thenReturn(contentManager)
+        Mockito.`when`(toolWindowManager.getToolWindow(JuggControlPanelHost.TOOL_WINDOW_ID)).thenReturn(toolWindow)
+        Mockito.doReturn(toolWindowManager).`when`(project).getService(ToolWindowManager::class.java)
+
+        val loader = Mockito.mock(com.sickworm.intellij.jugg.loader.JuggLoader::class.java)
+        Mockito.`when`(loader.juggManager).thenReturn(mockManager)
+
+        val instanceSetField = com.sickworm.intellij.jugg.loader.JuggInitializer::class.java.getDeclaredField("instanceSet")
+        instanceSetField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val instanceSet = instanceSetField.get(com.sickworm.intellij.jugg.loader.JuggInitializer) as MutableMap<String, com.sickworm.intellij.jugg.loader.JuggLoader>
+        instanceSet["/mock/project"] = loader
+
+        val controller = JuggControlPanelController(
+            project = project,
+            manager = Mockito.mock(JuggManager::class.java),
+            deployTargetManager = Mockito.mock(IDeployTargetManager::class.java),
+            deployHistoryManager = Mockito.mock(IDeployHistoryManager::class.java),
+            deployFileManager = Mockito.mock(DeployFileManager::class.java),
+            logger = Logger.getInstance("test"),
+        )
+
+        try {
+            controller.onManagerReady()
+            javax.swing.SwingUtilities.invokeAndWait {}
+
+            assertEquals(1, host.componentCount)
+            assertSame(realPanel, host.getComponent(0))
+        } finally {
+            instanceSet.remove("/mock/project")
+        }
+    }
+
+    @Test
     fun `control panel renders the latest model snapshot`() {
         TestGlobal.init()
         val model = JuggControlPanelModel()

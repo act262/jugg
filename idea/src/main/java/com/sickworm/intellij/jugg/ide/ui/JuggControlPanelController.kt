@@ -308,7 +308,12 @@ open class JuggControlPanelController(
     }
 
     fun onManagerReady() {
-        JuggControlPanelHost.refresh(project)
+        try {
+            JuggControlPanelHost.refresh(project)
+        } catch (e: NoSuchMethodError) {
+            // Older installed hosts cannot be replaced by a hot update.
+            logger.warn("Control panel auto-refresh unavailable; restart IDE after installing the updated plugin.", e)
+        }
     }
 
     fun clear() {

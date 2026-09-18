@@ -259,6 +259,10 @@ open class JuggControlPanelController(
         if (syncEvent != SyncEvent.STARTED) syncEventTaskId = null
     }
 
+    fun onManagerReady() {
+        JuggControlPanelHost.refresh(project)
+    }
+
     fun clear() {
         panel = null
         JuggControlPanelHost.clear(project)

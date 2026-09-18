@@ -127,7 +127,7 @@ JuggRunConfiguration / JuggAndroidTestRunConfiguration
      回写 hasRun、停止日志监听、更新 UI
 ```
 
-一次 Run 使用唯一 taskId。Compile、每台设备 Deploy、fallback、取消、异常和聚合终态都进入同一个 events 体系；`JuggControlPanelModel` 只接受一个终态，Current Task、Timeline、Last Deploy、Recent Activity 和 Logs 不维护第二套任务状态。
+一次 Run 使用唯一 taskId。Compile、每台设备 Deploy、fallback、取消、异常和聚合终态都进入同一个 events 体系；`JuggControlPanelModel` 只接受一个终态，Current Task、Timeline、Last Deploy、Recent Activity 和 Logs 不维护第二套任务状态。任务启动时通过 `JuggRunningTask` companion 中的项目记录判断当前项目是否首次运行，首次运行时确保创建并主动打开 Run tool window，避免因 Gradle Sync 或重试重置 `isFirstTimeRun` 导致再次弹窗；非首次运行不主动打扰用户，仅刷新 live indicator 状态。
 
 androidTest 运行必须把 `androidTestRunSpec`、`executor`、`runProfile` 一起传入 `JuggManager.runTask()`，否则 Test Results console、source navigation、rerun failed 不能完整接入。
 

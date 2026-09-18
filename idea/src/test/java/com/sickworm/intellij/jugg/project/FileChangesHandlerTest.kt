@@ -9,6 +9,8 @@ import com.sickworm.intellij.jugg.mock.projectInfo
 import com.sickworm.intellij.jugg.project.data.ComposeResourceDirectory
 import com.sickworm.intellij.jugg.project.data.ComposeResourceInfo
 import com.sickworm.intellij.jugg.project.data.ComposeResourceSupportStatus
+import com.sickworm.intellij.jugg.project.data.ExternalBuildGeneratedLanguage
+import com.sickworm.intellij.jugg.project.data.ExternalBuildGeneratedSourceDir
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInfo
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInputDir
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule
@@ -17,6 +19,7 @@ import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule.CppS
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule.Dart
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule.FlutterAsset
 import com.sickworm.intellij.jugg.project.data.ExternalBuildInputFilterRule.NativeDirectory
+import com.sickworm.intellij.jugg.project.data.ExternalBuildPrerequisite
 import com.sickworm.intellij.jugg.project.data.ExternalBuildType
 import com.sickworm.intellij.jugg.project.data.ModuleBuildPathInfo
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -615,6 +618,41 @@ class FileChangesHandlerTest {
         assertChangedFileFile(File(File(flutterRoot, "lib"), "added.dart"))
         // A removed ordinary source keeps its previous behaviour and is not reported.
         assertTrue(handler.filter(listOf(File(app.moduleRootDir, "src/main/java/com/example/Removed.kt"))).isEmpty())
+    }
+
+    @Test
+    fun `reports a deleted codegen trigger as an external build source`() {
+        val app = context.applicationModule
+        val cppRoot = File(app.moduleRootDir, "native-idl")
+        val module = app.copy(externalBuildInfos = listOf(
+            ExternalBuildInfo(
+                type = ExternalBuildType.Cpp,
+                inputDirs = listOf(inputDir(cppRoot, CppSource, CppHeader)),
+                taskPath = ":app:mergeDebugNativeLibs",
+                assetsOutputDir = null,
+                nativeOutput = File(app.moduleRootDir, "build/intermediates/merged_native_libs/debug/out/lib"),
+                prerequisites = listOf(
+                    ExternalBuildPrerequisite(
+                        taskPath = ":app:compileMidl",
+                        triggerGlobs = listOf("**/*.idl.hpp"),
+                        generatedSourceDirs = listOf(
+                            ExternalBuildGeneratedSourceDir(
+                                File(app.moduleRootDir, "build/generated/idl/kotlin/commonMain"),
+                                ExternalBuildGeneratedLanguage.Kotlin,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ))
+        handler.init(context.copy(modules = context.modules + (module.name to module)))
+        val removed = File(cppRoot, "modules/chat/idl/Removed.idl.hpp")
+
+        val changed = handler.filter(listOf(removed)).single()
+
+        assertEquals(CompileFile.Type.ExternalBuildSource, changed.type)
+        assertEquals(removed, changed.file)
+        assertEquals(cppRoot.canonicalFile, changed.baseDir.canonicalFile)
     }
 
     @Test

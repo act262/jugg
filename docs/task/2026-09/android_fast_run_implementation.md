@@ -67,7 +67,7 @@ android-fast-run/
 构建：
 
 - `core`：`kotlin("multiplatform")`，仅 Native application，产出 `afr` / `afr.exe`。
-- `plugin`：`intellij` 插件，打包时按平台带上对应 `afr` 二进制到 `lib/bin/`。
+- `plugin`：`intellij` 插件，打包时按当前 OS 带上一份 `afr` 到插件根目录 `bin/`。
 - 不把 `core` 当插件的 `implementation` 依赖。
 
 ---

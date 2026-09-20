@@ -1,8 +1,8 @@
 # AndroidFastRun 实现方案
 
 > 创建：2026-09-20  
-> 状态：待评审（未开始实现）  
-> 性质：新项目实现方案。代码参考 Jugg，核心用 Kotlin Native 编成桌面可执行文件。未批准前不建仓库、不改 Jugg 生产代码。
+> 状态：P0 已批准并在独立仓库落地（本地验证）  
+> 性质：新项目实现方案。代码参考 Jugg，核心用 Kotlin Native 编成桌面可执行文件。P0 仓库目录：工作区 `/AndroidFastRun`（独立 Git，不是 Jugg 子模块）。
 
 ---
 
@@ -261,19 +261,20 @@ init script 是文本，Native 只负责落盘和传给 `gradlew`。runtime/agen
 
 ## 9. 待确认
 
-1. 仓库放独立 GitHub 项目，还是先在本工作区建 `android-fast-run/` 目录？（推荐独立仓库。）
-2. 插件目标 Android Studio 版本下限？（推荐先跟当前 Jugg 主开发 AS 一档，只做一层 IDE API。）
+1. ~~仓库放独立 GitHub 项目，还是先在本工作区建 `android-fast-run/` 目录？~~ **已确认：** 工作区独立目录 `/AndroidFastRun`，本地先验证；暂不挂 Jugg 子模块、不改 Jugg 生产代码。
+2. ~~插件目标 Android Studio 版本下限？~~ **已确认：** 跟当前最新稳定 Android Studio **Quail 4 Patch 1**（`2026.1.4.8`，build `AI-261.26222.65.2614.16379836`，平台 `261.26222.65` / IU `2026.1.4`）。`sinceBuild=261.26222`，`untilBuild=261.*`。不做多 AS compat。
 3. P1 是否包含 Gradle 回退，还是先只做「有基线才能增量」？（推荐 P1 含回退，否则没法第一次跑。）
 
-已冻结：核心 Native 可执行文件；插件 exec 调用；系统 JDK；不内嵌 JRE；不把 Jugg `main` 编成 Native。
+已冻结：核心 Native 可执行文件；插件 exec 调用；系统 JDK；不内嵌 JRE；不把 Jugg `main` 编成 Native；P0 插件目标 AS Quail 4 Patch 1。
 
 ---
 
-## 10. 第一期（P0）批准后才会做的事
+## 10. 第一期（P0）落地记录
 
-- 创建 AndroidFastRun 仓库骨架与 `afr version`。
-- 不改 Jugg 生产代码（除非另批「从 Jugg 抽取 init script 模板」）。
-- 本文件作为实现记录，后续按批准范围改。
+- 独立仓库：`/AndroidFastRun`（Jugg `.gitignore` 忽略该目录）。
+- `afr version`：Kotlin Native `linuxX64` 本机可运行；声明 `macosArm64` / `macosX64` / `mingwX64`。
+- 空插件：`AfrClient` exec bundled `afr --console=json version`，JSON 写入 Event Log。
+- 不改 Jugg 生产代码。
 
 **明确本期不建：** 完整编译器、插件 Run、runtime 注入、从 Jugg 大批量搬 Kotlin/JVM 源码。
 

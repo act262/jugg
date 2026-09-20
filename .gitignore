@@ -1,5 +1,8 @@
 .idea/
 .vscode/
+
+# Independent AndroidFastRun repository (not a Jugg submodule).
+/AndroidFastRun/
 bin/
 *.iml
 out/

@@ -3,6 +3,8 @@ package com.sickworm.intellij.jugg.deploy.nativesandbox
 import com.sickworm.intellij.jugg.compiler.CompileOutput
 import com.sickworm.intellij.jugg.deploy.AppSandboxExecutor
 import com.sickworm.intellij.jugg.deploy.run.DeployItem
+import java.io.File
+import java.util.Properties
 
 /**
  * Decides whether NativeLib files can skip APK resign/reinstall for this deploy round.
@@ -56,6 +58,31 @@ object NativeSandboxDeployPlanner {
             return null
         }
         return path.substringAfter('/').substringBefore('/')
+    }
+
+    fun checksumsOf(nativeFiles: List<DeployItem>): Map<String, Long> {
+        return nativeFiles.filter { it.type == CompileOutput.Type.NativeLib }
+            .associate { it.name to it.checksum }
+    }
+
+    fun readChecksumCache(file: File): Map<String, Long> {
+        if (!file.isFile) {
+            return emptyMap()
+        }
+        return try {
+            val properties = Properties()
+            file.inputStream().use { properties.load(it) }
+            properties.entries.associate { it.key.toString() to it.value.toString().toLong() }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun writeChecksumCache(file: File, checksums: Map<String, Long>) {
+        file.parentFile?.mkdirs()
+        val properties = Properties()
+        checksums.forEach { (name, checksum) -> properties[name] = checksum.toString() }
+        file.outputStream().use { properties.store(it, "Last seen native library checksums") }
     }
 
     private fun groupByTargetAbi(

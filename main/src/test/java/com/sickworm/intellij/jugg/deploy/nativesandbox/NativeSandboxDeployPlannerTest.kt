@@ -91,6 +91,25 @@ class NativeSandboxDeployPlannerTest {
     }
 
     @Test
+    fun `native-only attempt includes every native lib`() {
+        val plan = NativeSandboxDeployPlanner.plan(
+            updateApkFiles = listOf(
+                nativeLib("lib/arm64-v8a/libdtmp.so"),
+                nativeLib("lib/arm64-v8a/libmp_appcommon.so"),
+            ),
+            arch = NativeSandboxDeployPlanner.Arch.BIT_64,
+            api = 26,
+            sandboxMode = AppSandboxExecutor.Mode.RUN_AS,
+        )
+
+        val attempt = plan as NativeSandboxPlan.Attempt
+        assertEquals(
+            listOf("lib/arm64-v8a/libdtmp.so", "lib/arm64-v8a/libmp_appcommon.so"),
+            attempt.nativeFiles.map { it.name },
+        )
+    }
+
+    @Test
     fun `direct shell 32-bit selects armeabi-v7a`() {
         val plan = NativeSandboxDeployPlanner.plan(
             updateApkFiles = listOf(
@@ -107,7 +126,14 @@ class NativeSandboxDeployPlannerTest {
     }
 
     private fun nativeLib(name: String): DeployItem {
-        return deployItem(name, CompileOutput.Type.NativeLib)
+        return DeployItem(
+            name = name,
+            type = CompileOutput.Type.NativeLib,
+            checksum = 1L,
+            content = byteArrayOf(1),
+            apkPath = "/tmp/app.apk",
+            targetApkPaths = listOf("/tmp/app.apk"),
+        )
     }
 
     private fun deployItem(name: String, type: CompileOutput.Type): DeployItem {

@@ -43,6 +43,7 @@ class JuggPathManager(
 
     val compileContextDbDir = File(databaseDir, "compile_context.db")
     val deployHistoryDbDir = File(databaseDir, "deploy_history.db")
+    val nativeLibChecksumsFile = File(databaseDir, "native_lib.checksums")
 
     val localClasspathStoragePathManager = LocalClasspathStoragePathManager(File(juggRootDir, "classpath"))
 

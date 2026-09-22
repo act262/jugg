@@ -1,7 +1,7 @@
 # Jugg SO 热更新实现技术方案
 
 > 创建：2026-09-17  
-> 最后核对：2026-09-17  
+> 最后核对：2026-09-21  
 > 状态：已实现（与当前代码对齐）  
 > 性质：实现技术方案。产品决策、Freeline/Tinker 对齐口径与互斥/回退规则以调研稿为准；正文记录已落地的类、方法和验证。  
 > 调研基线：Agent Store `bc-27622ac3-2dfb-42ad-ada4-96ac66275f8f` 的 SO 热更新调研稿（2026-09-17 修订）
@@ -53,6 +53,7 @@ App restarted
 | 默认 App sandbox 跳过 `repairCodeCache` | **未改** `AppSandboxExecutor` 短路；Writer 仍传 `repairCodeCache = true`，仅 Direct/root 模式会真正 repair |
 | native-only 不注入 ClassLoader 路径 | startup hook 在 dex fix 之后调用 `NativeLibraryPathInstaller.install(base)` |
 | install 不清理 `.jugg_native` | `JuggDeployer.install()` 同时 `rm -rf code_cache/.overlay code_cache/.jugg_native` |
+| 脏模块 merge 目录带上未变更 sibling `.so` | 编译/strip 仍产出全部 `.so` 供 APK 重打包；`JuggDeployerHelper.tryDeliverNativeSandbox` 在 push 前用当前 `.so` checksum 对比上一轮记录，只把 dirty 库交给 Planner/Writer。缓存为空时本轮全部 push；缓存写在 `build/jugg/database/native_lib.checksums`，仅在 sandbox 热更新成功后写入 |
 
 ---
 
@@ -161,7 +162,7 @@ copy(
 
 | 类型 | 路径 | 职责 |
 |------|------|------|
-| `NativeSandboxDeployPlanner` | `main/.../deploy/nativesandbox/NativeSandboxDeployPlanner.kt` | 纯函数：从 `updateApkFiles` 拆出可尝试的 NativeLib；资格/ABI 过滤 |
+| `NativeSandboxDeployPlanner` | `main/.../deploy/nativesandbox/NativeSandboxDeployPlanner.kt` | 纯函数：从 `updateApkFiles` 拆出可尝试的 NativeLib；资格/ABI 过滤后交给 Writer |
 | `NativeSandboxWriteRequest` | `main/.../deploy/nativesandbox/NativeSandboxWriteRequest.kt` | `packageName` / `sessionId` / `abiDirs` |
 | `NativeSandboxWriter` | `main/.../deploy/nativesandbox/NativeSandboxWriter.kt` | 两步 push + sandbox 拷贝 + 成功标记；失败抛明确 step |
 | `NativeSandboxDeployException` / `NativeSandboxDeployStep` | 同 Writer 文件 | `STAGING` / `PUSH` / `COPY` / `SELINUX` / `CLEANUP_PATCH` |
@@ -178,10 +179,10 @@ fun plan(updateApkFiles, arch, api, sandboxMode): NativeSandboxPlan
 
 | 结果 | 含义 |
 |------|------|
-| `Skip(reason)` | 不尝试 A，原 `updateApkFiles` 不动 |
-| `Attempt(nativeFiles, otherApkFiles, abiDirs)` | `otherApkFiles` 为空；`abiDirs` 至少一组非空 |
+| `Skip(reason)` | 不尝试 A，原 `updateApkFiles` 不动（含脏模块 merge 目录的全部 `.so`） |
+| `Attempt(nativeFiles, otherApkFiles, abiDirs)` | `nativeFiles` / `abiDirs` 只含 dirty `.so`；`otherApkFiles` 为空 |
 
-Skip 条件全部在 Planner 内写死。
+Skip 条件全部在 Planner 内写死。Helper 先按 checksum 丢掉未变更 sibling；全部 NativeLib 都未变则不调用 Planner，仍用原始 `updateApkFiles` 走重打包。
 
 ### 4.3 Writer 序列
 
@@ -336,19 +337,21 @@ NativeLibraryPathInstaller.install(base)   // 在可能的 ClassLoader 替换之
 | `NativeSandboxDeployPlannerTest.kt` | L1 | Manifest+SO → Skip；仅 NativeLib + sandbox 可用/API26/arm64 → Attempt；错 ABI / UNAVAILABLE / API25 → Skip |
 | `NativeSandboxWriterTest.kt` | L1 | staging 路径 `nativeLib/`、sandbox `cp`、OK 标记、push 失败不声明成功、unsafe 路径拒绝；写入 `.enabled`；关闭只撤运行时标记 |
 | `JuggDeployDataTest.kt` | L1 | `nativeSandboxFiles` 触发 restart；`filterForApks` 裁剪 |
-| `JuggDeployerHelperDeployFlowTest.kt` | L2 | native-only 不走 resign/reinstall；Writer 失败后仍走 updateApk；关闭后保留补丁并撤 `.enabled` |
+| `JuggDeployerHelperDeployFlowTest.kt` | L2 | native-only 不走 resign/reinstall；checksum 未变 sibling 不 push；全部未变回退 APK；Writer 失败后仍走 updateApk；关闭后保留补丁并撤 `.enabled` |
 | `JuggRunSettingsComponentTest.kt` | L2 | 打开/关闭 SO hot update 持久化；无设备时置待同步运行时标记 |
 | `JuggDeployerInstallTest.kt` | L2 | 清理命令包含 `.jugg_native` |
 | `NativeLibraryPathInstallerTest.java` | **不新增** | 无稳定 DexPathList |
+| `ExternalBuildFlowTest` `keeps every native lib from a dirty module merge directory for apk update` | L1 | dirty 模块 merge 目录的全部 `.so` 进入 NativeLib 产物，供 APK 重打包 |
 
 ### 6.4 文档
 
 | 文件 | 状态 |
 |------|------|
-| `docs/ai_knowledge/03_deploy_core.md` | 已同步快路径、暂存 `nativeLib/`、互斥回退 |
+| `docs/ai_knowledge/02_compile_core.md` | 已同步 merge 目录全部 `.so` 进入 stripped 输出 |
+| `docs/ai_knowledge/03_deploy_core.md` | 已同步快路径、暂存 `nativeLib/`、互斥回退、hot update 只 push checksum dirty `.so` |
 | `docs/ai_knowledge/03_runtime_jvmti.md` | 已同步 startup hook 注入 |
-| `docs/ai_knowledge/98_code_map.md` | 已同步 Planner / Writer / Installer |
-| `docs/wiki/zh/capabilities/compile/so-update.md` 及英文镜像 | 已同步用户可见快路径 |
+| `docs/ai_knowledge/98_code_map.md` | 已同步 Helper 在 push 前按 checksum 过滤 |
+| `docs/wiki/zh/capabilities/compile/so-update.md` 及英文镜像 | 已同步重打包带全部 `.so`、热更新只 push 变更库 |
 | Wiki 入口页（`capabilities/compile/index`、`guide/compile`、`deploy-strategy`、`apk-update-and-install`） | **仍写旧「一定重签」口径**，未改 |
 
 不改 Freeline 调研归档，不把实现细节写进 `native_library_incremental_deploy_research.md`。

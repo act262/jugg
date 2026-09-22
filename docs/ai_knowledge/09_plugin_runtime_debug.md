@@ -30,6 +30,7 @@
 | `build/jugg/database/project_infos.db/` | IDE、Gradle 与 included build 的原始项目快照 |
 | `build/jugg/database/compile_context.db/` | 完整标记、module build path、full build 信息 |
 | `build/jugg/database/deploy_history.db/` | 增量部署历史与恢复状态 |
+| `build/jugg/database/native_lib.checksums` | SO hot update 上一轮成功推送的 `.so` CRC32 |
 | `build/jugg/database/apk/` | APK 解析数据库 |
 | `build/jugg/classpath/` | APK、依赖库和 classpath 缓存 |
 | `~/.jugg/const_ref/` | 跨项目 ConstRef 缓存；不可写时回退 `${java.io.tmpdir}/jugg-<user>/` |

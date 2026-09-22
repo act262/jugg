@@ -421,6 +421,10 @@ class GradleProjectInfoReaderManager(
      * Only the APK owner strip task configuration is read: the task action is never executed and its
      * input artifact provider is never resolved, so no app merge or unrelated native producer enters
      * the task graph of this invocation.
+     *
+     * The C++ collection unit is the module `merge<Variant>NativeLibs` directory, not a CMake target,
+     * so every `.so` in that tree is stripped into this invocation's output. APK repackaging needs
+     * the full set; SO hot update later pushes only dirty libraries.
      */
     fun stripExternalNativeOutput(
         request: ExternalBuildInfoRequestItem,

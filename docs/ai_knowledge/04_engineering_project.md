@@ -46,6 +46,7 @@
 | `build/jugg/database/project_infos.db/include_build_*_gradle_project_infos.json` | included build Gradle init script | included build 的模块/依赖/variant 快照 |
 | `build/jugg/database/project_infos.db/gradle_include_builds.txt` | Gradle init script | include build project info 文件列表 |
 | `build/jugg/database/project_infos.db/is_dirty` | project info 管理 | 标记需要更新 project info |
+| `build/jugg/database/native_lib.checksums` | SO hot update | 上一轮成功 sandbox 推送的 `.so` CRC32；`Clear Jugg Build` 删除 `build/jugg` 时清除 |
 | `build/jugg/classpath/` | Gradle/full build fetch | 本地 classpath、APK、library backup、embedded APK |
 | `build/jugg/classpath/native_strip/` | Gradle init script（完整构建写入） | APK owner 的 `keepDebugSymbols` 与 ABI strip 工具缓存，含 `config.json` 与 `tools/` 内随基线迁移的工具副本；位于 `classpath/root` 之外，不进入 Java/Kotlin classpath |
 | `~/.jugg/library_test_build_records` | androidTest history | 记录 self-targeting library Test APK 构建历史 |

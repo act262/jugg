@@ -1104,8 +1104,18 @@ class JuggDeployerHelper(
             ?: return NativeSandboxOutcome(deployData, skipApkUpdate = false)
         val adb = deviceAdbFactory(device, logger)
         val sandbox = AppSandboxExecutor(adb, packageName, logger)
+        val checksumFile = pathManager.nativeLibChecksumsFile
+        val previousNativeChecksums = NativeSandboxDeployPlanner.readChecksumCache(checksumFile)
+        val filesForPlan = deployData.updateApkFiles.filter { item ->
+            item.type != CompileOutput.Type.NativeLib ||
+                previousNativeChecksums[item.name] != item.checksum
+        }
+        if (filesForPlan.none { it.type == CompileOutput.Type.NativeLib }) {
+            logger.debug("SO sandbox deploy skipped: no dirty native libraries")
+            return NativeSandboxOutcome(deployData, skipApkUpdate = false)
+        }
         val plan = NativeSandboxDeployPlanner.plan(
-            updateApkFiles = deployData.updateApkFiles,
+            updateApkFiles = filesForPlan,
             arch = resolveNativeSandboxArch(adb, packageName, deployData),
             api = adb.api,
             sandboxMode = sandbox.mode,
@@ -1114,7 +1124,16 @@ class JuggDeployerHelper(
             logger.debug("SO sandbox deploy skipped: ${plan.reason}")
             return NativeSandboxOutcome(deployData, skipApkUpdate = false)
         }
-        return deliverNativeSandbox(packageName, adb, sandbox, plan as NativeSandboxPlan.Attempt, deployData)
+        val outcome = deliverNativeSandbox(
+            packageName, adb, sandbox, plan as NativeSandboxPlan.Attempt, deployData,
+        )
+        if (outcome.skipApkUpdate) {
+            NativeSandboxDeployPlanner.writeChecksumCache(
+                checksumFile,
+                NativeSandboxDeployPlanner.checksumsOf(deployData.updateApkFiles),
+            )
+        }
+        return outcome
     }
 
     private fun deliverNativeSandbox(

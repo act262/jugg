@@ -1,6 +1,6 @@
 # 部署系统：核心部署机制
 
-> 最后核对：2026-09-17
+> 最后核对：2026-09-21
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -139,7 +139,7 @@ JuggDeployerHelper.deploy(isInstall=false)
   -> updateInfoAfterIncDeploy()
 ```
 
-APK 更新统一走 `IncrementalDeployHelper.updateApk()`：`JuggDeployerHelper` 在普通 APK 更新和 Embedded APK 更新两处调用，并把 `DeployOptions.customApkSignScript` 与当前 `CompileUiHandler` 传入。`updateApk()` 只在未配置自定义脚本时才要求 `context.signingConfig` 有效；配置了脚本时本地 keystore 缺失不构成失败。`DeployDataGenerator` 仍把 NativeLib 放进 `updateApkFiles`；`JuggDeployerHelper` 在 resign 前先看 `canTryNativeSandbox`：`JuggSettings.isEnableNativeSandboxDeploy` 默认关闭，Control Panel Settings → Deployment「SO hot update」打开且设备 `apiLevel ≥ 26`（Android 8.0 / `VERSION_CODES.O`）后才调用 `tryDeliverNativeSandbox`。开启后用 `NativeSandboxDeployPlanner` 分流：本轮只有 NativeLib、sandbox 可用且能解析目标 ABI 时，`NativeSandboxWriter` 把 `.so` 推到 `/data/local/tmp/jugg/nativeLib/` 再拷入 `code_cache/.jugg_native/<abi>/`，成功后清空 `updateApkFiles` 并写入瞬态 `nativeSandboxFiles`，跳过重签和重装，仍强制重启进程。目标 ABI 与 Apply Changes 共用 `AppAbiResolver.resolveWithCache` 和 Helper 持有的 `AppAbiCache`，进程不在时不能把 `ARCH_UNKNOWN` 当成 64 位。开关关闭、API < 26、同轮还有 Manifest 等非 NativeLib、sandbox 不可用、ABI 对不上、或任一步失败时，整批回到原来的 `updateApk → resign → reinstall`。copy/SELinux 失败时只 `rm -f` 本轮写入的 `.so`；push 尚未拷入 sandbox 时不动已有补丁目录。关闭 SO hot update 会置 `isNeedSyncNativeSandboxRuntime`：已连接设备立刻写入或删除 `code_cache/.jugg_native/.enabled`，不删补丁 `.so`；当时没有设备或同步失败时，下次增量部署再同步。默认关闭且无待同步标记时不会每轮探测 sandbox。`NativeLibraryPathInstaller` 只在 `.enabled` 存在时注入路径。sandbox 路径只覆盖 `System.loadLibrary` / `findLibrary`，不覆盖绝对路径 `dlopen`。
+APK 更新统一走 `IncrementalDeployHelper.updateApk()`：`JuggDeployerHelper` 在普通 APK 更新和 Embedded APK 更新两处调用，并把 `DeployOptions.customApkSignScript` 与当前 `CompileUiHandler` 传入。`updateApk()` 只在未配置自定义脚本时才要求 `context.signingConfig` 有效；配置了脚本时本地 keystore 缺失不构成失败。`DeployDataGenerator` 仍把 NativeLib 放进 `updateApkFiles`；`JuggDeployerHelper` 在 resign 前先看 `canTryNativeSandbox`：`JuggSettings.isEnableNativeSandboxDeploy` 默认关闭，Control Panel Settings → Deployment「SO hot update」打开且设备 `apiLevel ≥ 26`（Android 8.0 / `VERSION_CODES.O`）后才调用 `tryDeliverNativeSandbox`。开启后用 `NativeSandboxDeployPlanner` 分流：本轮只有 NativeLib、sandbox 可用且能解析目标 ABI 时，`JuggDeployerHelper.tryDeliverNativeSandbox` 先按 checksum 相对上一轮记录过滤 dirty `.so`，再交给 Planner；Writer 把 dirty 库推到 `/data/local/tmp/jugg/nativeLib/` 再拷入 `code_cache/.jugg_native/<abi>/`，成功后清空 `updateApkFiles` 并写入瞬态 `nativeSandboxFiles`，跳过重签和重装，仍强制重启进程。未变更 sibling 不 push，但原始 `updateApkFiles` 仍保留脏模块 merge 目录的全部 `.so`，失败回退或未走热更新时 `updateApk` 会整批重打包。上一轮 checksum 缓存在 `build/jugg/database/native_lib.checksums`，仅在 sandbox 热更新成功后写入当前 merge 目录全部 `.so` 的 checksum；缓存为空时本轮全部 push。目标 ABI 与 Apply Changes 共用 `AppAbiResolver.resolveWithCache` 和 Helper 持有的 `AppAbiCache`，进程不在时不能把 `ARCH_UNKNOWN` 当成 64 位。开关关闭、API < 26、同轮还有 Manifest 等非 NativeLib、sandbox 不可用、ABI 对不上、或任一步失败时，整批回到原来的 `updateApk → resign → reinstall`。copy/SELinux 失败时只 `rm -f` 本轮写入的 `.so`；push 尚未拷入 sandbox 时不动已有补丁目录。关闭 SO hot update 会置 `isNeedSyncNativeSandboxRuntime`：已连接设备立刻写入或删除 `code_cache/.jugg_native/.enabled`，不删补丁 `.so`；当时没有设备或同步失败时，下次增量部署再同步。默认关闭且无待同步标记时不会每轮探测 sandbox。`NativeLibraryPathInstaller` 只在 `.enabled` 存在时注入路径。sandbox 路径只覆盖 `System.loadLibrary` / `findLibrary`，不覆盖绝对路径 `dlopen`。
 
 ```text
 IncrementalDeployHelper.updateApk(apkInfos, deployItems, customApkSignScript, compileUiHandler)

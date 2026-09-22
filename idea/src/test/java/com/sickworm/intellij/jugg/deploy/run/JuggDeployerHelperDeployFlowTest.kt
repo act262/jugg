@@ -22,8 +22,10 @@ import com.sickworm.intellij.jugg.deploy.nativesandbox.NativeSandboxWriter
 import com.sickworm.intellij.jugg.deploy.run.utils.AdbLogWrapper
 import com.sickworm.intellij.jugg.ide.bean.JuggSettings
 import com.sickworm.intellij.jugg.mock.logger
+import com.sickworm.intellij.jugg.mock.TestGlobal
 import com.sickworm.intellij.jugg.platform.IPlatformApi
 import com.sickworm.intellij.jugg.platform.PlatformApi
+import com.sickworm.intellij.jugg.project.JuggPathManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -580,6 +582,95 @@ class JuggDeployerHelperDeployFlowTest {
             Mockito.verify(fixture.deployTargetManager).restartApp(fixture.device)
             assertEquals(JuggDeployData.DeployType.HOT_FIX, result.deployType)
             assertTrue(result.hasDeployChanges)
+        }
+    }
+
+    @Test
+    fun `native sandbox pushes only dirty sibling so files`() {
+        withNativeSandboxDeploy(enabled = true) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
+            val base = DeployFlowTestSupport.nativeLibOnlyDeployData()
+            val apkPath = base.updateApkFiles.first().apkPath
+            val checksumFile = JuggPathManager(TestGlobal.projectInfo.projectRoot).nativeLibChecksumsFile
+            NativeSandboxDeployPlanner.writeChecksumCache(
+                checksumFile,
+                mapOf(
+                    "lib/arm64-v8a/libdtmp.so" to 1L,
+                    "lib/arm64-v8a/libmp_appcommon.so" to 1L,
+                ),
+            )
+            try {
+                Mockito.`when`(
+                    fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+                ).thenReturn(
+                    base.copy(
+                        updateApkFiles = listOf(
+                            DeployItem(
+                                name = "lib/arm64-v8a/libdtmp.so",
+                                type = CompileOutput.Type.NativeLib,
+                                checksum = 2L,
+                                content = byteArrayOf(1, 2, 3),
+                                apkPath = apkPath,
+                                targetApkPaths = listOf(apkPath),
+                            ),
+                            DeployItem(
+                                name = "lib/arm64-v8a/libmp_appcommon.so",
+                                type = CompileOutput.Type.NativeLib,
+                                checksum = 1L,
+                                content = byteArrayOf(9, 9, 9),
+                                apkPath = apkPath,
+                                targetApkPaths = listOf(apkPath),
+                            ),
+                        ),
+                    ),
+                )
+
+                val result = fixture.helper.deploy(fixture.deployOptions)
+
+                assertTrue("deploy failed: ${result.failedReason}", result.isSuccess)
+                assertEquals(0, fixture.virtualDevice.installInvokeCount)
+                val nativeDir = File(
+                    fixture.virtualDevice.packageDataDir(),
+                    "code_cache/.jugg_native/arm64-v8a",
+                )
+                assertTrue(File(nativeDir, "libdtmp.so").isFile)
+                assertFalse(File(nativeDir, "libmp_appcommon.so").isFile)
+            } finally {
+                checksumFile.delete()
+            }
+        }
+    }
+
+    @Test
+    fun `native sandbox skips push when every so checksum is unchanged`() {
+        withNativeSandboxDeploy(enabled = true) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
+            val checksumFile = JuggPathManager(TestGlobal.projectInfo.projectRoot).nativeLibChecksumsFile
+            NativeSandboxDeployPlanner.writeChecksumCache(
+                checksumFile,
+                mapOf("lib/arm64-v8a/libdtmp.so" to 1L),
+            )
+            try {
+                Mockito.`when`(
+                    fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+                ).thenReturn(DeployFlowTestSupport.nativeLibOnlyDeployData())
+
+                val result = fixture.helper.deploy(fixture.deployOptions)
+
+                assertFalse(result.isSuccess)
+                assertTrue(result.failedReason.orEmpty().contains("signing config"))
+                assertFalse(
+                    fixture.virtualDevice.shellScripts.any { it.contains("__JUGG_NATIVE_SANDBOX__") },
+                )
+                assertFalse(
+                    File(
+                        fixture.virtualDevice.packageDataDir(),
+                        "code_cache/.jugg_native/arm64-v8a/libdtmp.so",
+                    ).isFile,
+                )
+            } finally {
+                checksumFile.delete()
+            }
         }
     }
 

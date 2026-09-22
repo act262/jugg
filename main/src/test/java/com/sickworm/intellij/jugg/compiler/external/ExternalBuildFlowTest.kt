@@ -153,6 +153,67 @@ class ExternalBuildFlowTest {
     }
 
     @Test
+    fun `keeps every native lib from a dirty module merge directory for apk update`() {
+        val root = Files.createTempDirectory("jugg-unchanged-sibling-native").toFile()
+        val parent = object : Disposable {
+            override fun dispose() = Unit
+        }
+        try {
+            val cppRoot = File(root, "native").apply { mkdirs() }
+            val cppOutput = File(root, "build/cpp")
+            val strippedDir = File(root, "stripped/app")
+            val module = createCppModule(
+                root,
+                "appcommon",
+                File(root, "mp/appcommon"),
+                cppRoot,
+                ":mp:appcommon:mergeDebugNativeLibs",
+                cppOutput,
+            )
+            createCppCollectorGradleScript(
+                root,
+                listOf(
+                    CppStubTarget(
+                        "appcommon",
+                        File(root, "mp/appcommon"),
+                        ":mp:appcommon:mergeDebugNativeLibs",
+                        cppOutput,
+                        strippedDir,
+                        "libdtmp.so",
+                    ),
+                ),
+                extraStrippedLibs = mapOf("libmp_appcommon.so" to "stable-main-so"),
+            )
+            val cppFile = File(cppRoot, "ai_creation_util.cc").apply { writeText("void util() {}") }
+            val context = createContext(root, module, "./gradlew :app:assembleDebug",
+                externalBuildInfoInitScript = createInitScript(root))
+            createApkWithNativeLibs(
+                context.apkFile,
+                mapOf(
+                    "lib/arm64-v8a/libdtmp.so" to "old-dtmp",
+                    "lib/arm64-v8a/libmp_appcommon.so" to "stable-main-so",
+                ),
+            )
+
+            val result = JuggCompiler(context, parent).compile(CompileTask(
+                listOf(CompileFile(CompileFile.Type.ExternalBuildSource, cppFile, cppRoot, module)),
+                File(root, "staging"),
+                CompileStatusHolder.DEFAULT,
+            ))
+
+            assertTrue(result.isAllSuccess, result.toString())
+            val nativeOutputs = result.outputs.filter { it.type == CompileOutput.Type.NativeLib }
+            assertEquals(
+                setOf("lib/arm64-v8a/libdtmp.so", "lib/arm64-v8a/libmp_appcommon.so"),
+                nativeOutputs.map { it.relativeFile.invariantSeparatorsPath }.toSet(),
+            )
+        } finally {
+            Disposer.dispose(parent)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `fails Cpp round when the invocation reports no stripped native output`() {
         val root = Files.createTempDirectory("jugg-cpp-no-stripped-output").toFile()
         val parent = object : Disposable {
@@ -963,7 +1024,11 @@ class ExternalBuildFlowTest {
      * Writes a Gradle stub that produces the requested module merge outputs and one collector result
      * describing this invocation, including the stripped native output the compiler must consume.
      */
-    private fun createCppCollectorGradleScript(root: File, targets: List<CppStubTarget>) {
+    private fun createCppCollectorGradleScript(
+        root: File,
+        targets: List<CppStubTarget>,
+        extraStrippedLibs: Map<String, String> = emptyMap(),
+    ) {
         val updates = targets.joinToString(",") { target ->
             val strippedField = target.strippedOutputDir
                 ?.let { ""","strippedNativeOutput":"${it.path}"""" }
@@ -972,7 +1037,7 @@ class ExternalBuildFlowTest {
                     """"buildVariant":"debug","previousTaskPath":"${target.taskPath}",""" +
                     """"externalBuildInfo":{"type":"Cpp","inputDirs":[{"directory":"${target.moduleRoot.path}","filterRules":["CppSource"]}],""" +
                     """"taskPath":"${target.taskPath}","nativeOutput":"${target.mergeOutputDir.path}",""" +
-                    """"configFiles":[],"excludedDirs":[]}$strippedField}"""
+                    """"configFiles":[],"excludedDirs":[],"prerequisites":[]}$strippedField}"""
         }
         val lines = mutableListOf(
             "#!/bin/bash",
@@ -989,6 +1054,9 @@ class ExternalBuildFlowTest {
                 lines += """mkdir -p "${strippedAbiDir.path}""""
                 target.libName?.let { libName ->
                     lines += """printf stripped > "${File(strippedAbiDir, libName).path}""""
+                }
+                extraStrippedLibs.forEach { (libName, content) ->
+                    lines += """printf '%s' '$content' > "${File(strippedAbiDir, libName).path}""""
                 }
             }
         }
@@ -1166,10 +1234,20 @@ class ExternalBuildFlowTest {
     }
 
     private fun createEmptyApk(file: File) {
+        createApkWithNativeLibs(file, emptyMap())
+    }
+
+    private fun createApkWithNativeLibs(file: File, nativeLibs: Map<String, String>) {
+        file.parentFile.mkdirs()
         ZipOutputStream(file.outputStream()).use { zip ->
             zip.putNextEntry(ZipEntry("AndroidManifest.xml"))
             zip.write(byteArrayOf(1))
             zip.closeEntry()
+            nativeLibs.forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
         }
     }
 
